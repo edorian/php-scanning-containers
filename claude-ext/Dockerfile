@@ -159,6 +159,7 @@ here.
 - `composer`, `gh`, `claude`, `gdb`, `valgrind`, `strace`,
   `semgrep`, `zizmor`, `jq`, `rg`, `fd` — on PATH.
   (Valgrind cannot be combined with ASan — pick one per run.)
+  `gh` auths from `$GH_TOKEN`.
 - Both **gcc** (default `cc`) and **clang** (with `lld`, `llvm`,
   `clang-tidy`, `clang-format`, `libclang-rt-14-dev`, `libc++`) on PATH.
   `llvm-symbolizer` is available so clang's ASan/UBSan reports
@@ -256,9 +257,10 @@ make test TESTS="-q --show-diff"
    stack) so the user can grep for them.
 MD
 
-# Token is supplied via -e CLAUDE_CODE_OAUTH_TOKEN=...
-# IS_SANDBOX=1 so --dangerously-skip-permissions runs as root
+# Tokens injected at run time (-e).
+# IS_SANDBOX=1 lets --dangerously-skip-permissions run as root.
 ENV CLAUDE_CODE_OAUTH_TOKEN="" \
+    GH_TOKEN="" \
     IS_SANDBOX=1
 WORKDIR /workspace
 

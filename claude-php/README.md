@@ -1,6 +1,8 @@
 # claude-php
 
-One container. `php-src` master built from source with all major extensions, plus Composer and Claude Code.
+Scanning container for PHP userland.
+
+PHP is built from source with all major extensions, plus Composer, Claude Code, and the GitHub CLI.
 
 ## Build
 
@@ -8,30 +10,20 @@ One container. `php-src` master built from source with all major extensions, plu
 docker build -t claude-php .
 ```
 
+## Auth
+
+`-e CLAUDE_CODE_OAUTH_TOKEN` (required) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
+
 ## Run
 
-Mount a folder and drop into a shell with `php`, `composer`, `claude` on `PATH`:
+Mounts the current folder and launches Claude Code.
 
 ```bash
-docker run -it --rm \
-    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-... \
+docker run --rm -it \
     -v "$PWD:/workspace" \
+    -e CLAUDE_CODE_OAUTH_TOKEN \
+    -e GH_TOKEN \
     claude-php
-```
-
-Run Claude Code directly instead of bash:
-
-```bash
-docker run -it --rm \
-    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-... \
-    -v "$PWD:/workspace" \
-    claude-php claude
-```
-
-Run a one-off PHP script:
-
-```bash
-docker run --rm -v "$PWD:/workspace" claude-php php script.php
 ```
 
 ## Working on PHP itself

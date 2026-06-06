@@ -1,42 +1,29 @@
 # claude-ext
 
-One container. `php-src` master built **debug + ZTS + AddressSanitizer +
-UndefinedBehaviorSanitizer**, ready for PHP C extensions to be built and
-fuzzed against it. Composer, Claude Code, `gdb`, `valgrind`, `strace` on
-PATH.
+Scanning container for PHP extensions.
+
+`php-src` master built **debug + ZTS + AddressSanitizer + UndefinedBehaviorSanitizer**, ready for PHP C extensions to be built against it. Composer, Claude Code, `gdb`, `valgrind`, `strace` on PATH.
 
 ## Build
 
 ```bash
-./build.sh        # docker build -t claude-ext . + smoke checks
+./build.sh
 ```
+
+## Auth
+
+`-e CLAUDE_CODE_OAUTH_TOKEN` (required) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
 
 ## Run
 
-Mount an extension source tree and let Claude Code drive:
+Mounts the extension source tree and launches Claude Code
 
 ```bash
-docker run -it --rm \
-    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-... \
+docker run --rm -it \
     -v "$PWD:/workspace" \
+    -e CLAUDE_CODE_OAUTH_TOKEN \
+    -e GH_TOKEN \
     claude-ext
-```
-
-Drop into a shell instead:
-
-```bash
-docker run -it --rm -v "$PWD:/workspace" --entrypoint bash claude-ext
-```
-
-Build + test a single extension:
-
-```bash
-docker run --rm -v "$PWD:/workspace" --entrypoint bash claude-ext -c '
-    cd /workspace &&
-    phpize &&
-    ./configure --enable-myext &&
-    make -j"$(nproc)" &&
-    make test'
 ```
 
 ## What's in the image
@@ -113,9 +100,6 @@ gdb --args php -d extension=./modules/myext.so script.php
 (gdb) bt full
 ```
 
-Zend internals live at `/opt/php-src/Zend/` — keep them open when reading
-refcount / object-lifetime crashes.
-
 ## Working on PHP itself
 
 Source tree at `/opt/php-src`, build deps installed:
@@ -125,5 +109,4 @@ cd /opt/php-src && git pull && ./buildconf --force && ./configure ... \
   && make -j"$(nproc)" && make install
 ```
 
-The Dockerfile's `./configure` line is the canonical reference for which
-extensions are compiled in.
+The Dockerfile's `./configure` line is the canonical reference for which extensions are compiled in.

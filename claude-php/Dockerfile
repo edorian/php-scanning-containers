@@ -21,7 +21,7 @@ RUN apt-get update \
 
 FROM debian:bookworm-slim
 
-ARG PHP_GIT_REF=master
+ARG PHP_GIT_REF=8.5.7
 ARG PHP_GIT_URL=https://github.com/php/php-src.git
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -121,6 +121,7 @@ so run shell commands, write files, and install packages freely.
   `php-config`, `php-fpm` on PATH.
 - `/opt/php-src` — PHP source tree, build deps installed (rebuildable).
 - `composer`, `gh`, `claude`, `semgrep`, `zizmor`, `jq`, `rg`, `fd` — on PATH.
+  `gh` auths from `$GH_TOKEN`.
 
 ## Rules
 
@@ -139,9 +140,11 @@ so run shell commands, write files, and install packages freely.
    Report results.
 MD
 
-# Token is supplied via -e CLAUDE_CODE_OAUTH_TOKEN=...
-# IS_SANDBOX=1 so --dangerously-skip-permissions runs as root
+# Tokens injected at run time (-e). gh reads GH_TOKEN directly, no `gh auth
+# login`; empty default = logged out. IS_SANDBOX=1 lets
+# --dangerously-skip-permissions run as root.
 ENV CLAUDE_CODE_OAUTH_TOKEN="" \
+    GH_TOKEN="" \
     IS_SANDBOX=1
 WORKDIR /workspace
 
