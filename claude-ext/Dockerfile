@@ -165,6 +165,10 @@ here.
   `llvm-symbolizer` is available so clang's ASan/UBSan reports
   symbolize cleanly.
 
+### Code generation
+
+Read /opt/php-src/CODING_STANDARDS.md
+
 ## gcc vs clang
 
 PHP itself is gcc-built, so its ASan runtime is `libasan.so` from gcc.
