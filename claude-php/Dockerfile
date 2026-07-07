@@ -98,8 +98,10 @@ RUN mkdir -p /root/.claude && cat > /root/.claude/settings.json <<'JSON'
   "model": "claude-opus-4-8",
   "theme": "dark",
   "effortLevel": "xhigh",
+  "tui": "default",
   "skipDangerousModePermissionPrompt": true,
   "awaySummaryEnabled": false,
+  "spinnerTipsEnabled": false,
   "spinnerVerbs": {
     "mode": "replace",
     "verbs": ["Thinking"]
