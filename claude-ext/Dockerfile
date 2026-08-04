@@ -31,7 +31,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ASAN_OPTIONS="symbolize=1:strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=0:print_summary=1" \
     UBSAN_OPTIONS="print_stacktrace=1:print_summary=1"
 
-# Toolchain - same as claude-php plus debugging tools.
+# Toolchain
 # Both gcc (build-essential) and clang/llvm are installed so extension /
 # harness code can be built with either. PHP itself is built with gcc
 # below; clang-built .so files that get dlopen'd into PHP will clash with
@@ -148,8 +148,7 @@ install packages freely.
 
 PHP is built **debug + AddressSanitizer + UndefinedBehaviorSanitizer**.
 Use it to catch memory errors, leaks, UB, and refcount/object lifetime
-bugs in C extensions. Pure-PHP analysis belongs in `claude-php`, not
-here.
+bugs in C extensions.
 
 ## Layout
 
@@ -170,6 +169,8 @@ here.
 ### Code generation
 
 Read /opt/php-src/CODING_STANDARDS.md
+
+Output that should persist goes into /workspace 
 
 ## gcc vs clang
 

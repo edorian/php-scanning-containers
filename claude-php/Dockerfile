@@ -125,6 +125,8 @@ so run shell commands, write files, and install packages freely.
 - `composer`, `gh`, `claude`, `semgrep`, `zizmor`, `jq`, `rg`, `fd` — on PATH.
   `gh` auths from `$GH_TOKEN`.
 
+Output that should persist goes into /workspace
+
 ## Rules
 
 1. Back every claim with a command you ran in the container. Prefer running

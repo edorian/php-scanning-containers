@@ -1,4 +1,4 @@
-Ephemeral container to work with untrusted PHP and PHP-extension source code
+Ephemeral containers to work with untrusted PHP, PHP-extension, and Go source code
 
 # Overview
 
@@ -29,6 +29,7 @@ The container assumes the code to scanned to exist in `/workspace`
 ```
 ./claude-php/build.sh
 ./claude-ext/build.sh
+./claude-go/build.sh
 ```
 
 ## Run
@@ -38,6 +39,7 @@ Mount the current folder to do scanning work with:
 Containers:
 - `claude-php`
 - `claude-ext`
+- `claude-go`
 
 Example:
 
