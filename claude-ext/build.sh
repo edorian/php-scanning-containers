@@ -13,6 +13,7 @@ check() {
 
 check "php"            php --version
 check "php debug"      sh -c 'php -v | grep -qi DEBUG || { echo "not a debug build"; exit 1; }'
+check "php zts"        sh -c 'php -i | grep -q "Thread Safety => enabled"'
 check "php asan"       sh -c 'php -i | grep -q -- "--enable-address-sanitizer"'
 check "php ubsan"      sh -c 'php -i | grep -q -- "--enable-undefined-sanitizer"'
 check "phpize"         phpize --version
@@ -54,7 +55,7 @@ check "jq"             jq --version
 check "rg"             rg --version
 check "fd"             fd --version
 check "semgrep"        semgrep --version
-#check "zizmor"         zizmor --version
+check "zizmor"         zizmor --version
 check "CLAUDE.md"      test -s /root/.claude/CLAUDE.md
 check "settings.json"  jq -r '"  model: \(.model)\n  effort: \(.effortLevel)"' /root/.claude/settings.json
 check "php-src"        test -d /opt/php-src

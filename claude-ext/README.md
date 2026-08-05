@@ -39,29 +39,26 @@ docker run --rm -it \
 
 ## Sanitizer setup
 
-The image pre-exports the flags that matter, so `phpize && ./configure`
-inside any extension picks them up:
+`CFLAGS`/`CXXFLAGS`/`LDFLAGS`, `USE_ZEND_ALLOC`, `ASAN_OPTIONS` and
+`UBSAN_OPTIONS` are pre-exported in the image, so `phpize && ./configure`
+inside any extension inherits the same flags PHP itself was built with.
 
-```
-CFLAGS   = -fsanitize=address,undefined -fno-omit-frame-pointer \
-           -fno-sanitize-recover=undefined -g -O1
-CXXFLAGS = (same as CFLAGS)
-LDFLAGS  = -fsanitize=address,undefined
+The `ENV` blocks in the [`Dockerfile`](Dockerfile) are the canonical
+list — this file deliberately doesn't copy them. To see what a live
+container has:
 
-USE_ZEND_ALLOC=0           # Zend's arena hides bugs from ASan — off.
-ZEND_DONT_UNLOAD_MODULES=1  # keep module symbols for clean leak stacks.
-ASAN_OPTIONS=symbolize=1:strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=0
-UBSAN_OPTIONS=print_stacktrace=1:print_summary=1
+```bash
+docker run --rm --entrypoint "" claude-ext env | grep -E 'FLAGS|SAN_'
 ```
 
-`detect_leaks=0` by default because PHP itself has known startup leaks
-that drown signal in noise. Flip to `detect_leaks=1` when you have a
-focused suspect.
+Two defaults worth knowing:
 
-`-fno-sanitize-recover=undefined` makes UBSan **abort** on first hit.
-That's the right default for catching bugs; set
-`UBSAN_OPTIONS=halt_on_error=0` if you want to survey across many UB
-sites in one run.
+- `detect_leaks=0`, because PHP itself has known startup leaks that drown
+  signal in noise. Flip to `detect_leaks=1` when you have a focused
+  suspect.
+- `-fno-sanitize-recover=undefined` makes UBSan **abort** on first hit.
+  It is compiled in, so no `UBSAN_OPTIONS` setting relaxes it — to survey
+  many UB sites in one run you have to rebuild without the flag.
 
 ## Building an extension
 
@@ -80,25 +77,6 @@ make test TESTS="-q --show-diff"
 
 `phpize` reads from `/usr/local/php` — the same debug+sanitizer build —
 so the resulting `.so` is ABI-compatible and instrumented.
-
-## Triaging a sanitizer report
-
-ASan / UBSan write to stderr. The interesting bits:
-
-```
-==12345==ERROR: AddressSanitizer: heap-use-after-free on address ...
-    #0 0x... in zif_myext_thing src/myext.c:42
-    ...
-SUMMARY: AddressSanitizer: heap-use-after-free src/myext.c:42 in zif_myext_thing
-```
-
-Re-run under GDB for a live session:
-
-```bash
-gdb --args php -d extension=./modules/myext.so script.php
-(gdb) run
-(gdb) bt full
-```
 
 ## Working on PHP itself
 

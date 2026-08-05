@@ -19,7 +19,7 @@ check "jq"             jq --version
 check "rg"             rg --version
 check "fd"             fd --version
 check "semgrep"        semgrep --version
-#check "zizmor"         zizmor --version
+check "zizmor"         zizmor --version
 check "CLAUDE.md"      test -s /root/.claude/CLAUDE.md
 check "settings.json"  jq -r '"  model: \(.model)\n  effort: \(.effortLevel)"' /root/.claude/settings.json
 check "php-src"        test -d /opt/php-src

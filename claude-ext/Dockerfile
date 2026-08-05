@@ -4,19 +4,24 @@
 # Alpine/musl, won't run on our debian/glibc base, so we pull the matching
 # glibc release tarball from GitHub. Bump ZIZMOR_VERSION to update.
 FROM debian:bookworm-slim AS zizmor
-ARG ZIZMOR_VERSION=1.25.2
+ARG ZIZMOR_VERSION=1.29.0
+
+# The release archive has held the bare binary at its root, and a
+# zizmor-<target>/ directory in older versions — locate it either way so a
+# version bump can't silently break the layout assumption.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && arch="$(dpkg --print-architecture)" \
-# && case "$arch" in \
-#        amd64) target=x86_64-unknown-linux-gnu ;; \
-#        arm64) target=aarch64-unknown-linux-gnu ;; \
-#        *) echo "zizmor: unsupported arch $arch"; exit 1 ;; \
-#    esac \
-# && curl -fsSL "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-${target}.tar.gz" \
-#    | tar xz -C /tmp \
-# && mv "/tmp/zizmor-${target}/zizmor" /usr/local/bin/zizmor
-  && rm -rf /var/lib/apt/lists/*
+ && case "$arch" in \
+        amd64) target=x86_64-unknown-linux-gnu ;; \
+        arm64) target=aarch64-unknown-linux-gnu ;; \
+        *) echo "zizmor: unsupported arch $arch"; exit 1 ;; \
+    esac \
+ && mkdir -p /tmp/zizmor-dl \
+ && curl -fsSL "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-${target}.tar.gz" \
+    | tar xz -C /tmp/zizmor-dl \
+ && install -m 0755 "$(find /tmp/zizmor-dl -type f -name zizmor)" /usr/local/bin/zizmor \
+ && rm -rf /var/lib/apt/lists/* /tmp/zizmor-dl
 
 FROM debian:bookworm-slim
 
@@ -80,6 +85,7 @@ RUN ./buildconf --force \
         --with-config-file-path=/usr/local/php/etc \
         --with-config-file-scan-dir=/usr/local/php/etc/conf.d \
         --enable-debug \
+        --enable-zts \
         --enable-address-sanitizer \
         --enable-undefined-sanitizer \
         --enable-fpm --with-fpm-user=www-data --with-fpm-group=www-data \
@@ -108,7 +114,7 @@ ENV CFLAGS="-fsanitize=address -DZEND_TRACK_ARENA_ALLOC -fsanitize=undefined -fn
     LDFLAGS="-fsanitize=address -fsanitize=undefined"
 
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
-#COPY --from=zizmor /usr/local/bin/zizmor /usr/local/bin/zizmor
+COPY --from=zizmor /usr/local/bin/zizmor /usr/local/bin/zizmor
 
 # Claude Code. build.sh sets CLAUDE_INSTALL_BUST to today's date by default,
 # so this layer (and everything below it) refreshes once per day. Pass a
@@ -146,15 +152,19 @@ install packages freely.
 
 ## What's special about this image
 
-PHP is built **debug + AddressSanitizer + UndefinedBehaviorSanitizer**.
+PHP is built **debug + ZTS + AddressSanitizer + UndefinedBehaviorSanitizer**.
 Use it to catch memory errors, leaks, UB, and refcount/object lifetime
-bugs in C extensions.
+bugs in C extensions. ZTS means globals must go through the `ZEND_TSRMG`
+accessors — a `.so` that stashes state in plain C globals will build and
+then misbehave under threads.
 
 ## Layout
 
 - `/workspace` — target extension source (host mount). Start here.
-- `/usr/local/php` — debug+ASan+UBSan PHP. `php`, `phpize`, `php-config`,
-  `php-fpm` on PATH. `php -v` reports `(DEBUG)` plus sanitizer config.
+- `/usr/local/php` — debug+ZTS+ASan+UBSan PHP. `php`, `phpize`,
+  `php-config`, `php-fpm` on PATH and all resolving to this build, so a
+  `.so` you build here links against the matching Zend ABI and is
+  instrumented. `php -v` reports `(DEBUG)` plus sanitizer config.
 - `/opt/php-src` — PHP source tree, build deps installed. Useful for
   reading Zend internals (`Zend/zend_*.h`) when triaging crashes.
 - `composer`, `gh`, `claude`, `gdb`, `valgrind`, `strace`,
@@ -192,56 +202,24 @@ That has consequences for what you build with what:
 
 ## Build environment
 
-Sanitizer flags are pre-exported so `phpize && ./configure && make`
-picks them up automatically, matching what PHP itself was built with:
+Sanitizer `CFLAGS`/`CXXFLAGS`/`LDFLAGS` and the `USE_ZEND_ALLOC` /
+`ASAN_OPTIONS` / `UBSAN_OPTIONS` runtime knobs are pre-exported to match
+what PHP itself was built with, so `phpize && ./configure && make` picks
+them up. Read the current values with `env | grep -E 'FLAGS|SAN_'` —
+that is the canonical source, not this file.
 
-```
-CFLAGS   = -fsanitize=address -DZEND_TRACK_ARENA_ALLOC \
-           -fsanitize=undefined -fno-sanitize-recover=undefined \
-           -fno-sanitize=object-size \
-           -fno-omit-frame-pointer -g -O1
-CXXFLAGS = (same)
-LDFLAGS  = -fsanitize=address -fsanitize=undefined
-```
+Why the non-obvious ones are set:
 
-`-fno-sanitize=object-size` is required — PHP's `zend_function` union
-violates strict object-size, and php-src adds this flag itself.
-`-DZEND_TRACK_ARENA_ALLOC` matters too: it changes how Zend's arena
-allocator is compiled, and extensions need the same definition as the
-core to keep allocator macros consistent.
-
-Runtime knobs (also pre-set):
-
-```
-USE_ZEND_ALLOC=0      # disable Zend's arena so ASan sees every alloc
-ASAN_OPTIONS=symbolize=1:strict_string_checks=1:\
-             detect_stack_use_after_return=1:detect_leaks=0:print_summary=1
-UBSAN_OPTIONS=print_stacktrace=1:print_summary=1
-```
-
-`detect_leaks=0` by default — PHP has known startup leaks that drown
-signal. Flip to `=1` once you have a focused suspect.
-
-`-fno-sanitize-recover=undefined` is baked in at compile time, so UB
-**aborts** on first hit. That's what php-src CI uses.
-
-## How to build & test an extension
-
-```
-cd /workspace
-phpize
-./configure --enable-<extname>
-make -j"$(nproc)"
-
-# Smoke test
-php -d extension=$(pwd)/modules/<extname>.so --ri <extname>
-
-# Run the extension's own .phpt suite under sanitizers
-make test TESTS="-q --show-diff"
-```
-
-`phpize` and `php-config` point at the debug build, so the resulting
-`.so` links against the matching Zend ABI.
+- `-fno-sanitize=object-size` — PHP's `zend_function` union violates
+  strict object-size; php-src sets this itself.
+- `-DZEND_TRACK_ARENA_ALLOC` — changes how Zend's arena allocator is
+  compiled. Extensions need the same definition as the core, or the
+  allocator macros go inconsistent.
+- `USE_ZEND_ALLOC=0` — disables Zend's arena so ASan sees every alloc.
+- `detect_leaks=0` — PHP has known startup leaks that drown signal. Flip
+  to `=1` once you have a focused suspect.
+- `-fno-sanitize-recover=undefined` — compiled in, so UB **aborts** on
+  first hit. Same as php-src CI.
 
 ## Rules
 
