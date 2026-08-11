@@ -6,6 +6,8 @@ The current stable Go toolchain from the official tarball, plus the usual
 analysis tools (`staticcheck`, `golangci-lint`, `govulncheck`, `gosec`,
 `dlv`), Claude Code, and the GitHub CLI.
 
+`build.sh` also produces `codex-go`: the same image with the Codex CLI in place of Claude Code.
+
 ## Build
 
 ```bash
@@ -17,7 +19,7 @@ resolves whatever `https://go.dev/VERSION?m=text` reports at build time.
 
 ## Auth
 
-`-e CLAUDE_CODE_OAUTH_TOKEN` (required) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
+`-e CLAUDE_CODE_OAUTH_TOKEN` (required, `-e CODEX_ACCESS_TOKEN` or `-e CODEX_AUTH_JSON` for `codex-go`) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
 
 ## Run
 

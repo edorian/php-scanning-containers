@@ -6,9 +6,7 @@
 FROM debian:bookworm-slim AS zizmor
 ARG ZIZMOR_VERSION=1.29.0
 
-# The release archive has held the bare binary at its root, and a
-# zizmor-<target>/ directory in older versions — locate it either way so a
-# version bump can't silently break the layout assumption.
+# Older releases nested the binary in zizmor-<target>/; find it either way.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && arch="$(dpkg --print-architecture)" \
@@ -23,7 +21,7 @@ RUN apt-get update \
  && install -m 0755 "$(find /tmp/zizmor-dl -type f -name zizmor)" /usr/local/bin/zizmor \
  && rm -rf /var/lib/apt/lists/* /tmp/zizmor-dl
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS base
 
 ARG PHP_GIT_REF=master
 ARG PHP_GIT_URL=https://github.com/php/php-src.git
@@ -116,9 +114,15 @@ ENV CFLAGS="-fsanitize=address -DZEND_TRACK_ARENA_ALLOC -fsanitize=undefined -fn
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 COPY --from=zizmor /usr/local/bin/zizmor /usr/local/bin/zizmor
 
-# Claude Code. build.sh sets CLAUDE_INSTALL_BUST to today's date by default,
-# so this layer (and everything below it) refreshes once per day. Pass a
-# different value (or use --no-cache) to force a mid-day refresh.
+# A login shell (`bash -lc`) re-sets PATH from /etc/profile and drops
+# everything ENV added. Codex runs commands that way; re-export it.
+RUN printf 'export PATH=%s\n' "$PATH" > /etc/profile.d/10-path.sh
+
+FROM base AS claude
+
+# build.sh sets CLAUDE_INSTALL_BUST to today's date by default, so this
+# layer (and everything below it) refreshes once per day. Pass a different
+# value (or use --no-cache) to force a mid-day refresh.
 ARG CLAUDE_INSTALL_BUST=0
 RUN echo "claude install bust=${CLAUDE_INSTALL_BUST}" \
  && curl -fsSL https://claude.ai/install.sh | bash
@@ -142,111 +146,64 @@ RUN mkdir -p /root/.claude && cat > /root/.claude/settings.json <<'JSON'
 }
 JSON
 
-# Global CLAUDE.md - ground rules for the extension scanning container
-RUN cat > /root/.claude/CLAUDE.md <<'MD'
-# claude-ext scanning container
+COPY container-rules.md /root/.claude/CLAUDE.md
 
-PHP **extension** analysis sandbox. Running as root with
-`--dangerously-skip-permissions`, so run shell commands, write files, and
-install packages freely.
-
-## What's special about this image
-
-PHP is built **debug + ZTS + AddressSanitizer + UndefinedBehaviorSanitizer**.
-Use it to catch memory errors, leaks, UB, and refcount/object lifetime
-bugs in C extensions. ZTS means globals must go through the `ZEND_TSRMG`
-accessors — a `.so` that stashes state in plain C globals will build and
-then misbehave under threads.
-
-## Layout
-
-- `/workspace` — target extension source (host mount). Start here.
-- `/usr/local/php` — debug+ZTS+ASan+UBSan PHP. `php`, `phpize`,
-  `php-config`, `php-fpm` on PATH and all resolving to this build, so a
-  `.so` you build here links against the matching Zend ABI and is
-  instrumented. `php -v` reports `(DEBUG)` plus sanitizer config.
-- `/opt/php-src` — PHP source tree, build deps installed. Useful for
-  reading Zend internals (`Zend/zend_*.h`) when triaging crashes.
-- `composer`, `gh`, `claude`, `gdb`, `valgrind`, `strace`,
-  `semgrep`, `zizmor`, `jq`, `rg`, `fd` — on PATH.
-  (Valgrind cannot be combined with ASan — pick one per run.)
-  `gh` auths from `$GH_TOKEN`.
-- Both **gcc** (default `cc`) and **clang** (with `lld`, `llvm`,
-  `clang-tidy`, `clang-format`, `libclang-rt-14-dev`, `libc++`) on PATH.
-  `llvm-symbolizer` is available so clang's ASan/UBSan reports
-  symbolize cleanly.
-
-### Code generation
-
-Read /opt/php-src/CODING_STANDARDS.md
-
-Output that should persist goes into /workspace 
-
-## gcc vs clang
-
-PHP itself is gcc-built, so its ASan runtime is `libasan.so` from gcc.
-That has consequences for what you build with what:
-
-- **PHP extensions** (anything you `extension=` into PHP): build with
-  **gcc**. The pre-exported `CFLAGS`/`LDFLAGS` below work as-is. A
-  clang-built `.so` dlopen'd into a gcc-asan PHP will abort with
-  "AddressSanitizer: CHECK failed" or similar runtime-mismatch errors.
-- **Standalone fuzz harnesses, test programs, libFuzzer targets**:
-  build with **clang** (`CC=clang CXX=clang++`). The same
-  `-fsanitize=address,undefined` flags work; clang additionally gives
-  you `-fsanitize=fuzzer`, `-fsanitize=memory`, `-fsanitize=thread`,
-  and better control-flow integrity options that gcc lacks.
-- **Rebuilding PHP itself with clang**: supported — re-run the
-  `/opt/php-src` configure line with `CC=clang CXX=clang++`. Then
-  clang-built extensions will load. Don't mix afterwards.
-
-## Build environment
-
-Sanitizer `CFLAGS`/`CXXFLAGS`/`LDFLAGS` and the `USE_ZEND_ALLOC` /
-`ASAN_OPTIONS` / `UBSAN_OPTIONS` runtime knobs are pre-exported to match
-what PHP itself was built with, so `phpize && ./configure && make` picks
-them up. Read the current values with `env | grep -E 'FLAGS|SAN_'` —
-that is the canonical source, not this file.
-
-Why the non-obvious ones are set:
-
-- `-fno-sanitize=object-size` — PHP's `zend_function` union violates
-  strict object-size; php-src sets this itself.
-- `-DZEND_TRACK_ARENA_ALLOC` — changes how Zend's arena allocator is
-  compiled. Extensions need the same definition as the core, or the
-  allocator macros go inconsistent.
-- `USE_ZEND_ALLOC=0` — disables Zend's arena so ASan sees every alloc.
-- `detect_leaks=0` — PHP has known startup leaks that drown signal. Flip
-  to `=1` once you have a focused suspect.
-- `-fno-sanitize-recover=undefined` — compiled in, so UB **aborts** on
-  first hit. Same as php-src CI.
-
-## Rules
-
-1. Back every claim with a command you ran in the container. `php -l`,
-   `make test`, `gdb --args php …`, parsing ASan reports — prefer
-   running things over static reasoning.
-2. Build the extension before analyzing. If `config.m4` exists but no
-   `Makefile`, run `phpize && ./configure && make`.
-3. Run the project's `.phpt` tests if any exist. A clean `make test`
-   summary doesn't mean a clean sanitizer run — grep the test logs for
-   `AddressSanitizer:` / `UndefinedBehaviorSanitizer:` / `runtime error:`.
-4. When triaging a crash:
-   - Re-run under `gdb --args php -d extension=… script.php`, `bt full`.
-   - Cross-reference with `/opt/php-src` headers for `ZVAL_*`,
-     `Z_ADDREF_P`, `OBJ_RELEASE`, arena vs. emalloc usage.
-   - Sanitizer reports are authoritative — don't dismiss them as noise.
-5. Install missing build deps (apt, pecl) without asking; mention what
-   you added in your reply.
-6. Report sanitizer findings verbatim (SUMMARY line plus the top of the
-   stack) so the user can grep for them.
-MD
-
-# Tokens injected at run time (-e).
-# IS_SANDBOX=1 lets --dangerously-skip-permissions run as root.
+# Tokens injected at run time (-e). gh reads GH_TOKEN directly, no `gh auth
+# login`; empty default = logged out. IS_SANDBOX=1 lets
+# --dangerously-skip-permissions run as root.
 ENV CLAUDE_CODE_OAUTH_TOKEN="" \
     GH_TOKEN="" \
     IS_SANDBOX=1
 WORKDIR /workspace
 
 CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
+
+FROM base AS codex
+
+# Static musl binary, so the npm package (and Node with it) is not needed.
+# Empty CODEX_VERSION = latest release at build time.
+ARG CODEX_INSTALL_BUST=0
+ARG CODEX_VERSION=
+RUN set -eux; \
+    echo "codex install bust=${CODEX_INSTALL_BUST}"; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) target=x86_64-unknown-linux-musl ;; \
+        arm64) target=aarch64-unknown-linux-musl ;; \
+        *) echo "codex: unsupported arch $arch" >&2; exit 1 ;; \
+    esac; \
+    tag="${CODEX_VERSION:-$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)}"; \
+    mkdir -p /tmp/codex-dl; \
+    curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-${target}.tar.gz" \
+        | tar xz -C /tmp/codex-dl; \
+    install -m 0755 "$(find /tmp/codex-dl -type f -name 'codex*' | head -n1)" /usr/local/bin/codex; \
+    rm -rf /tmp/codex-dl; \
+    codex --version
+
+# Also makes a bare `codex` behave like `codex --yolo`.
+RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<'TOML'
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[projects."/workspace"]
+trust_level = "trusted"
+TOML
+
+COPY container-rules.md /root/.codex/AGENTS.md
+
+ENV CODEX_ACCESS_TOKEN="" \
+    CODEX_AUTH_JSON="" \
+    GH_TOKEN=""
+WORKDIR /workspace
+
+RUN cat > /usr/local/bin/codex-entrypoint <<'SH' && chmod +x /usr/local/bin/codex-entrypoint
+#!/bin/sh
+if [ -n "${CODEX_AUTH_JSON-}" ]; then
+    printf '%s' "$CODEX_AUTH_JSON" > /root/.codex/auth.json
+    chmod 600 /root/.codex/auth.json
+fi
+exec "$@"
+SH
+ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
+
+CMD ["codex", "--yolo"]

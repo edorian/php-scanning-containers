@@ -16,7 +16,11 @@ claude setup-token
 
 Tokens are shared `ENV` (`-e`)
 
-- `CLAUDE_CODE_OAUTH_TOKEN`, required.
+- `CLAUDE_CODE_OAUTH_TOKEN`, required for the `claude-*` containers.
+
+- `CODEX_ACCESS_TOKEN`, required for the `codex-*` containers. Business and Enterprise workspaces only.
+
+- `CODEX_AUTH_JSON`, the alternative on a personal account: run `codex login` once on the host, then pass `"$(cat ~/.codex/auth.json)"`.
 
 - `GH_TOKEN`, optional. GitHub CLI auth avoids running into rate limits when looking up data. Use a fine-grained [PAT](https://github.com/settings/personal-access-tokens). Read-only access for exclusively public repos is a good default.
 
@@ -27,9 +31,9 @@ The container assumes the code to scanned to exist in `/workspace`
 ## Build
 
 ```
-./claude-php/build.sh
-./claude-ext/build.sh
-./claude-go/build.sh
+./php/build.sh
+./ext/build.sh
+./go/build.sh
 ```
 
 ## Run
@@ -37,9 +41,11 @@ The container assumes the code to scanned to exist in `/workspace`
 Mount the current folder to do scanning work with:
 
 Containers:
-- `claude-php`
-- `claude-ext`
-- `claude-go`
+- `claude-php`, `codex-php`
+- `claude-ext`, `codex-ext`
+- `claude-go`, `codex-go`
+
+`./run.sh <container>` mounts `$PWD`, passes whichever token the container needs, and starts the agent.
 
 Example:
 

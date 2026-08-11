@@ -4,15 +4,17 @@ Scanning container for PHP userland.
 
 PHP is built from source with all major extensions, plus Composer, Claude Code, and the GitHub CLI.
 
+`build.sh` also produces `codex-php`: the same image with the Codex CLI in place of Claude Code.
+
 ## Build
 
 ```bash
-docker build -t claude-php .
+./build.sh
 ```
 
 ## Auth
 
-`-e CLAUDE_CODE_OAUTH_TOKEN` (required) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
+`-e CLAUDE_CODE_OAUTH_TOKEN` (required, `-e CODEX_ACCESS_TOKEN` or `-e CODEX_AUTH_JSON` for `codex-php`) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
 
 ## Run
 

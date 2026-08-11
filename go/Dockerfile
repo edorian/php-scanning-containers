@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS base
 
 # Empty GO_VERSION = resolve the current stable release at build time.
 # Pin to e.g. go1.25.0 for a reproducible image.
@@ -75,9 +75,15 @@ RUN set -eux; \
         | sh -s -- -b /usr/local/bin; \
     go clean -cache -modcache -testcache
 
-# Claude Code. build.sh sets CLAUDE_INSTALL_BUST to today's date by default,
-# so this layer (and everything below it) refreshes once per day. Pass a
-# different value (or use --no-cache) to force a mid-day refresh.
+# A login shell (`bash -lc`) re-sets PATH from /etc/profile and drops
+# everything ENV added. Codex runs commands that way; re-export it.
+RUN printf 'export PATH=%s\n' "$PATH" > /etc/profile.d/10-path.sh
+
+FROM base AS claude
+
+# build.sh sets CLAUDE_INSTALL_BUST to today's date by default, so this
+# layer (and everything below it) refreshes once per day. Pass a different
+# value (or use --no-cache) to force a mid-day refresh.
 ARG CLAUDE_INSTALL_BUST=0
 RUN echo "claude install bust=${CLAUDE_INSTALL_BUST}" \
  && curl -fsSL https://claude.ai/install.sh | bash
@@ -101,57 +107,7 @@ RUN mkdir -p /root/.claude && cat > /root/.claude/settings.json <<'JSON'
 }
 JSON
 
-# Global CLAUDE.md - ground rules for the scanning container
-RUN cat > /root/.claude/CLAUDE.md <<'MD'
-# claude-go scanning container
-
-Go analysis sandbox. Running as root with `--dangerously-skip-permissions`,
-so run shell commands, write files, and install packages freely.
-
-## Layout
-
-- `/workspace` — target codebase (host mount). Start here.
-- `/usr/local/go` — Go toolchain. `/usr/local/go/src` is the full stdlib
-  source; read it when runtime/stdlib behaviour is in question.
-- `/root/go` — GOPATH; installed tools land in `/root/go/bin` (on PATH).
-- `go`, `gofmt`, `gofumpt`, `goimports`, `staticcheck`, `golangci-lint`,
-  `govulncheck`, `gosec`, `gopls`, `dlv`, `gotestsum`, `gh`, `claude`,
-  `semgrep`, `jq`, `rg`, `fd` — on PATH. `gh` auths from `$GH_TOKEN`.
-- `GOTOOLCHAIN=auto`, so `go` downloads whatever toolchain the project's
-  `go.mod` asks for. `go version` in `/workspace` is the truth, not the
-  baked-in version.
-- gcc and clang both present. `-race` works with the default gcc/cgo
-  setup; `-msan` and `-asan` require `CC=clang`.
-
-Output that should persist goes into /workspace
-
-## Rules
-
-1. Back every claim with a command you ran in the container. Prefer
-   running things (`go build ./...`, `go vet ./...`, `go test ./...`,
-   `gh …`) over static reasoning.
-2. Bootstrap before analyzing: if `go.mod` exists, run `go mod download`
-   (and `go mod tidy` only when you intend to change the module graph).
-   For a vendored tree (`vendor/`), build with `-mod=vendor`.
-3. Run tests with the race detector — `go test -race ./...` — whenever
-   concurrency is anywhere near the change. A pass without `-race` says
-   very little about a concurrent program.
-4. If the package has fuzz targets (`func FuzzXxx(f *testing.F)`), run
-   them: `go test -run '^$' -fuzz FuzzXxx -fuzztime 60s ./pkg`. Any new
-   entry written to `testdata/fuzz/` is a reproducer — report it.
-5. Install missing tools (apt, `go install`) without asking; mention in
-   your reply what you added.
-6. Before handing back a patch, discover the project's QA setup
-   (`Makefile`, `Taskfile.yml`, `.golangci.yml`, `go.work`, CI configs)
-   and run the checks that apply to the change. If the project pins its
-   own linter config, use it rather than the image defaults. Fall back to
-   `gofmt -l`, `go vet ./...`, `staticcheck ./...`, `govulncheck ./...`.
-   Fix what they flag, or explain why not. Report results.
-7. Build tags and GOOS/GOARCH hide code from a default build. When a file
-   is behind a constraint, check it explicitly
-   (`go build -tags integration ./...`, `GOOS=windows go vet ./...`)
-   instead of assuming `./...` covered it.
-MD
+COPY container-rules.md /root/.claude/CLAUDE.md
 
 # Tokens injected at run time (-e). gh reads GH_TOKEN directly, no `gh auth
 # login`; empty default = logged out. IS_SANDBOX=1 lets
@@ -162,3 +118,53 @@ ENV CLAUDE_CODE_OAUTH_TOKEN="" \
 WORKDIR /workspace
 
 CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
+
+FROM base AS codex
+
+# Static musl binary, so the npm package (and Node with it) is not needed.
+# Empty CODEX_VERSION = latest release at build time.
+ARG CODEX_INSTALL_BUST=0
+ARG CODEX_VERSION=
+RUN set -eux; \
+    echo "codex install bust=${CODEX_INSTALL_BUST}"; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) target=x86_64-unknown-linux-musl ;; \
+        arm64) target=aarch64-unknown-linux-musl ;; \
+        *) echo "codex: unsupported arch $arch" >&2; exit 1 ;; \
+    esac; \
+    tag="${CODEX_VERSION:-$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)}"; \
+    mkdir -p /tmp/codex-dl; \
+    curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-${target}.tar.gz" \
+        | tar xz -C /tmp/codex-dl; \
+    install -m 0755 "$(find /tmp/codex-dl -type f -name 'codex*' | head -n1)" /usr/local/bin/codex; \
+    rm -rf /tmp/codex-dl; \
+    codex --version
+
+# Also makes a bare `codex` behave like `codex --yolo`.
+RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<'TOML'
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[projects."/workspace"]
+trust_level = "trusted"
+TOML
+
+COPY container-rules.md /root/.codex/AGENTS.md
+
+ENV CODEX_ACCESS_TOKEN="" \
+    CODEX_AUTH_JSON="" \
+    GH_TOKEN=""
+WORKDIR /workspace
+
+RUN cat > /usr/local/bin/codex-entrypoint <<'SH' && chmod +x /usr/local/bin/codex-entrypoint
+#!/bin/sh
+if [ -n "${CODEX_AUTH_JSON-}" ]; then
+    printf '%s' "$CODEX_AUTH_JSON" > /root/.codex/auth.json
+    chmod 600 /root/.codex/auth.json
+fi
+exec "$@"
+SH
+ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
+
+CMD ["codex", "--yolo"]

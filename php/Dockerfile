@@ -6,9 +6,7 @@
 FROM debian:bookworm-slim AS zizmor
 ARG ZIZMOR_VERSION=1.29.0
 
-# The release archive has held the bare binary at its root, and a
-# zizmor-<target>/ directory in older versions — locate it either way so a
-# version bump can't silently break the layout assumption.
+# Older releases nested the binary in zizmor-<target>/; find it either way.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && arch="$(dpkg --print-architecture)" \
@@ -23,7 +21,7 @@ RUN apt-get update \
  && install -m 0755 "$(find /tmp/zizmor-dl -type f -name zizmor)" /usr/local/bin/zizmor \
  && rm -rf /var/lib/apt/lists/* /tmp/zizmor-dl
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS base
 
 ARG PHP_GIT_REF=php-8.5.7
 ARG PHP_GIT_URL=https://github.com/php/php-src.git
@@ -87,9 +85,15 @@ RUN ./buildconf --force \
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 COPY --from=zizmor /usr/local/bin/zizmor /usr/local/bin/zizmor
 
-# Claude Code. build.sh sets CLAUDE_INSTALL_BUST to today's date by default,
-# so this layer (and everything below it) refreshes once per day. Pass a
-# different value (or use --no-cache) to force a mid-day refresh.
+# A login shell (`bash -lc`) re-sets PATH from /etc/profile and drops
+# everything ENV added. Codex runs commands that way; re-export it.
+RUN printf 'export PATH=%s\n' "$PATH" > /etc/profile.d/10-path.sh
+
+FROM base AS claude
+
+# build.sh sets CLAUDE_INSTALL_BUST to today's date by default, so this
+# layer (and everything below it) refreshes once per day. Pass a different
+# value (or use --no-cache) to force a mid-day refresh.
 ARG CLAUDE_INSTALL_BUST=0
 RUN echo "claude install bust=${CLAUDE_INSTALL_BUST}" \
  && curl -fsSL https://claude.ai/install.sh | bash
@@ -113,40 +117,7 @@ RUN mkdir -p /root/.claude && cat > /root/.claude/settings.json <<'JSON'
 }
 JSON
 
-# Global CLAUDE.md - ground rules for the scanning container
-RUN cat > /root/.claude/CLAUDE.md <<'MD'
-# claude-php scanning container
-
-PHP analysis sandbox. Running as root with `--dangerously-skip-permissions`,
-so run shell commands, write files, and install packages freely.
-
-## Layout
-
-- `/workspace` — target codebase (host mount). Start here.
-- `/usr/local/php` — PHP built from `php-src` master; `php`, `phpize`,
-  `php-config`, `php-fpm` on PATH.
-- `/opt/php-src` — PHP source tree, build deps installed (rebuildable).
-- `composer`, `gh`, `claude`, `semgrep`, `zizmor`, `jq`, `rg`, `fd` — on PATH.
-  `gh` auths from `$GH_TOKEN`.
-
-Output that should persist goes into /workspace
-
-## Rules
-
-1. Back every claim with a command you ran in the container. Prefer running
-   things (`php -l`, `composer validate`, `vendor/bin/phpunit`, `gh …`) over
-   static reasoning.
-2. Bootstrap before analyzing: if `composer.json` exists but `vendor/` is
-   missing (or the lock is stale), run `composer install`/`update`. Same
-   for any obvious build step the project needs.
-3. Install missing tools (apt, `composer global require`, pecl) without
-   asking; mention in your reply what you added.
-4. Before handing back a patch, discover the project's QA tools (composer
-   scripts, `phpcs.xml`, `phpstan.neon`, `psalm.xml`, `rector.php`,
-   `.php-cs-fixer.php`, `phpunit.xml`, CI configs) and run the ones that
-   apply against the change. Fix what they flag, or explain why not.
-   Report results.
-MD
+COPY container-rules.md /root/.claude/CLAUDE.md
 
 # Tokens injected at run time (-e). gh reads GH_TOKEN directly, no `gh auth
 # login`; empty default = logged out. IS_SANDBOX=1 lets
@@ -157,3 +128,53 @@ ENV CLAUDE_CODE_OAUTH_TOKEN="" \
 WORKDIR /workspace
 
 CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
+
+FROM base AS codex
+
+# Static musl binary, so the npm package (and Node with it) is not needed.
+# Empty CODEX_VERSION = latest release at build time.
+ARG CODEX_INSTALL_BUST=0
+ARG CODEX_VERSION=
+RUN set -eux; \
+    echo "codex install bust=${CODEX_INSTALL_BUST}"; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) target=x86_64-unknown-linux-musl ;; \
+        arm64) target=aarch64-unknown-linux-musl ;; \
+        *) echo "codex: unsupported arch $arch" >&2; exit 1 ;; \
+    esac; \
+    tag="${CODEX_VERSION:-$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)}"; \
+    mkdir -p /tmp/codex-dl; \
+    curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-${target}.tar.gz" \
+        | tar xz -C /tmp/codex-dl; \
+    install -m 0755 "$(find /tmp/codex-dl -type f -name 'codex*' | head -n1)" /usr/local/bin/codex; \
+    rm -rf /tmp/codex-dl; \
+    codex --version
+
+# Also makes a bare `codex` behave like `codex --yolo`.
+RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<'TOML'
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[projects."/workspace"]
+trust_level = "trusted"
+TOML
+
+COPY container-rules.md /root/.codex/AGENTS.md
+
+ENV CODEX_ACCESS_TOKEN="" \
+    CODEX_AUTH_JSON="" \
+    GH_TOKEN=""
+WORKDIR /workspace
+
+RUN cat > /usr/local/bin/codex-entrypoint <<'SH' && chmod +x /usr/local/bin/codex-entrypoint
+#!/bin/sh
+if [ -n "${CODEX_AUTH_JSON-}" ]; then
+    printf '%s' "$CODEX_AUTH_JSON" > /root/.codex/auth.json
+    chmod 600 /root/.codex/auth.json
+fi
+exec "$@"
+SH
+ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
+
+CMD ["codex", "--yolo"]

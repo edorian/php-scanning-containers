@@ -4,6 +4,8 @@ Scanning container for PHP extensions.
 
 `php-src` master built **debug + ZTS + AddressSanitizer + UndefinedBehaviorSanitizer**, ready for PHP C extensions to be built against it. Composer, Claude Code, `gdb`, `valgrind`, `strace` on PATH.
 
+`build.sh` also produces `codex-ext`: the same image with the Codex CLI in place of Claude Code.
+
 ## Build
 
 ```bash
@@ -12,7 +14,7 @@ Scanning container for PHP extensions.
 
 ## Auth
 
-`-e CLAUDE_CODE_OAUTH_TOKEN` (required) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
+`-e CLAUDE_CODE_OAUTH_TOKEN` (required, `-e CODEX_ACCESS_TOKEN` or `-e CODEX_AUTH_JSON` for `codex-ext`) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
 
 ## Run
 
