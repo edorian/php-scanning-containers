@@ -1,7 +1,12 @@
-# claude-php
+# PHP image
 
-Scanning container for PHP userland.
+Use `claude-php` or `codex-php` for PHP applications and libraries. The image
+contains a release NTS build of PHP 8.5.7, Composer, PHP source at
+`/opt/php-src`, and common analysis tools including Semgrep and zizmor.
 
-PHP is built from source with all major extensions, plus Composer, Claude Code, and the GitHub CLI.
+Choose this image for production-like userland behavior, dependency analysis,
+tests, and static checks. Choose the [PHP extension image](../ext/README.md) for
+PHP core or C-extension memory-safety work.
 
-Build, auth and run: see the root [`README.md`](../README.md).
+See the [root README](../README.md) for build, authentication, and launch
+commands.

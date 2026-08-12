@@ -1,65 +1,51 @@
-# claude-go
+# Go image
 
-Scanning container for Go projects.
+Use `claude-go` or `codex-go` for Go projects. The image includes the Go
+toolchain and standard library source, cgo support, GCC, Clang, Delve, and these
+project tools:
 
-The current stable Go toolchain from the official tarball, plus the usual
-analysis tools (`staticcheck`, `golangci-lint`, `govulncheck`, `gosec`,
-`dlv`), Claude Code, and the GitHub CLI.
+- `gofmt`, `gofumpt`, `goimports`
+- `staticcheck`, `golangci-lint`, `gosec`, `govulncheck`
+- `gopls`, `gotestsum`, `semgrep`
 
-Build, auth and run: see the root [`README.md`](../README.md).
-
-## What's in the image
-
-| Path / binary                                          | What                                     |
-|--------------------------------------------------------|------------------------------------------|
-| `/usr/local/go`                                          | Go toolchain, including full stdlib source |
-| `/root/go/bin`                                           | GOPATH bin — `go install`ed tools        |
-| `/workspace`                                             | Host mount — your source                 |
-| `go`, `gofmt`, `gofumpt`, `goimports`                    | Build + formatting                       |
-| `staticcheck`, `golangci-lint`, `gosec`, `govulncheck`   | Static analysis, vuln scanning           |
-| `gopls`, `dlv`, `gotestsum`                              | LSP, debugger, test runner               |
-| `gcc`, `clang`, `gdb`, `strace`                          | cgo, sanitizer builds, debugging         |
-| `gh`, `claude`, `semgrep`, `jq`, `rg`, `fd`              | On PATH                                  |
+See the [root README](../README.md) for build, authentication, and launch
+commands.
 
 ## Toolchain version
 
-The baked-in toolchain defaults to whatever `https://go.dev/VERSION?m=text`
-reports at build time. Pin it with `GO_VERSION=go1.25.0 ./build.sh`.
+The build uses the current stable Go release unless `GO_VERSION` is set:
 
-`GOTOOLCHAIN=auto`, so `go` downloads and uses whatever version the
-project's `go.mod` requires. The baked-in version is only the floor —
-inside `/workspace`, `go version` is the one that matters.
-
-To work offline or force the baked-in toolchain:
-
-```bash
-GOTOOLCHAIN=local go build ./...
+```sh
+GO_VERSION=go1.25.0 ./go/build.sh
 ```
 
-## Bug hunting
+`GOTOOLCHAIN=auto` allows Go to download the version required by `go.mod`.
+Use `GOTOOLCHAIN=local` to force the bundled version.
 
-The race detector is the highest-value tool here and needs cgo, which is
-enabled by default:
+## Runtime checks
 
-```bash
+cgo is enabled, so the race detector works without extra setup:
+
+```sh
 go test -race ./...
 ```
 
-Go's memory sanitizers require clang, which is installed:
+Clang is available for Go's memory sanitizers:
 
-```bash
-CC=clang go test -msan ./...   # uninitialized reads (cgo-heavy code)
-CC=clang go test -asan ./...   # out-of-bounds / UAF across the cgo boundary
+```sh
+CC=clang go test -msan ./...
+CC=clang go test -asan ./...
 ```
 
-`go test -fuzz` writes crashers to `testdata/fuzz/<Target>/` in the
-package directory — that is under `/workspace`, so they survive the
-container. `dlv` is installed for live debugging.
+Set `CGO_ENABLED=0` when building a pure-Go static binary. The race detector and
+memory sanitizers require cgo.
 
-## Notes
+Container caches are ephemeral. Mount volumes to retain them:
 
-- `CGO_ENABLED=1`. Set `CGO_ENABLED=0` per-command for pure-Go static
-  binaries; the race detector and the sanitizers won't work then.
-- The module and build caches are inside the container, so a fresh `docker
-  run` re-downloads dependencies. To keep them across runs, mount a
-  volume: `-v go-mod-cache:/root/go/pkg/mod -v go-build-cache:/root/.cache/go-build`.
+```sh
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v go-mod-cache:/root/go/pkg/mod \
+  -v go-build-cache:/root/.cache/go-build \
+  codex-go
+```
