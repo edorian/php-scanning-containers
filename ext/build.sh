@@ -5,10 +5,12 @@ cd "$(dirname "$0")"
 BUST=${CLAUDE_INSTALL_BUST:-$(date +%Y-%m-%d)}
 
 docker build --target claude \
-    --build-arg CLAUDE_INSTALL_BUST="$BUST" -t claude-ext .
+    --build-arg CLAUDE_INSTALL_BUST="$BUST" \
+    --build-arg PHP_GIT_REF="${PHP_GIT_REF:-master}" -t claude-ext .
 docker build --target codex \
     --build-arg CODEX_INSTALL_BUST="$BUST" \
-    --build-arg CODEX_VERSION="${CODEX_VERSION:-}" -t codex-ext .
+    --build-arg CODEX_VERSION="${CODEX_VERSION:-}" \
+    --build-arg PHP_GIT_REF="${PHP_GIT_REF:-master}" -t codex-ext .
 
 IMAGE=""
 check() {

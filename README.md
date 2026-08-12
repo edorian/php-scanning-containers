@@ -24,6 +24,8 @@ Optional environment variables:
 - `CLAUDE_INSTALL_BUST`: force the daily agent install layers to refresh.
 - `CODEX_VERSION`: install a specific Codex release instead of the latest.
 - `GO_VERSION`: set the Go version used by `go/build.sh`.
+- `PHP_GIT_REF`: select the php-src tag or branch used by `php/build.sh` or
+  `ext/build.sh`.
 
 ## Authenticate
 
@@ -49,7 +51,16 @@ is sufficient for public repositories.
 ## Run
 
 `run.sh` mounts the current directory at `/workspace`, forwards the relevant
-agent credentials, and starts the image's default agent:
+agent credentials, and starts the image's default agent. Use this layout:
+
+```text
+/workspace/<project>
+/workspace/findings.md
+/workspace/findings/     # optional supporting files
+```
+
+`findings.md` contains the complete report. Use `findings/` only when supporting
+files do not fit reasonably in the report.
 
 ```sh
 ./run.sh claude-php
@@ -57,11 +68,11 @@ agent credentials, and starts the image's default agent:
 ```
 
 Pass a command to replace the agent, or set `WORKSPACE` to mount another
-directory:
+workspace directory:
 
 ```sh
 ./run.sh codex-ext bash
-WORKSPACE=/path/to/project ./run.sh claude-go
+WORKSPACE=/path/to/workspace ./run.sh claude-go
 ```
 
 Equivalent direct Docker invocation:

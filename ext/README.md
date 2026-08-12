@@ -25,7 +25,7 @@ Always label results with the build that produced them.
 The default toolchain builds an instrumented extension for `php`:
 
 ```sh
-cd /workspace
+cd /workspace/myext
 phpize
 ./configure --enable-myext
 make -j"$(nproc)"
@@ -38,7 +38,7 @@ Build a separate copy for `php-prod`; the debug/ZTS and release/NTS builds use
 different ABIs and object trees:
 
 ```sh
-cp -a /workspace /tmp/myext-prod
+cp -a "$PWD" /tmp/myext-prod
 cd /tmp/myext-prod
 prod-env sh -c 'phpize && ./configure --enable-myext && make -j"$(nproc)"'
 

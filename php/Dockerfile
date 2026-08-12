@@ -23,7 +23,7 @@ RUN apt-get update \
 
 FROM debian:bookworm-slim AS base
 
-ARG PHP_GIT_REF=php-8.5.7
+ARG PHP_GIT_REF=php-8.5.9
 ARG PHP_GIT_URL=https://github.com/php/php-src.git
 
 ENV DEBIAN_FRONTEND=noninteractive \
