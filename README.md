@@ -1,20 +1,33 @@
-Ephemeral containers to work with untrusted PHP, PHP-extension, and Go source code
+Ephemeral containers to work with agents
 
 # Overview
 
-For details the README.md files in the subfolders
+Three images, each built in two variants: `claude-*` runs Claude Code, `codex-*` runs the Codex CLI.
+
+| Containers | For | Details |
+|---|---|---|
+| `claude-php`, `codex-php` | PHP userland | [`php/README.md`](php/README.md) |
+| `claude-ext`, `codex-ext` | PHP C extensions. `php` (debug+ZTS+ASan+UBSan) to prove a memory-safety bug, `php-prod` (release NTS) to prove it matters in production | [`ext/README.md`](ext/README.md) |
+| `claude-go`, `codex-go` | Go | [`go/README.md`](go/README.md) |
+
+Setup, auth, build and run are the same for all three and are documented below. The sub-READMEs cover only what is specific to each image.
 
 ## Setup
 
-Get a token for your Claude account
+Get a token for your Claude or OpenAI account
 
 ```
 claude setup-token
 ```
 
+```
+# After logging in once
+$(cat ~/.codex/auth.json)
+```
+
 ### Auth
 
-Tokens are shared `ENV` (`-e`)
+Tokens are passed as `ENV` (`-e`)
 
 - `CLAUDE_CODE_OAUTH_TOKEN`, required for the `claude-*` containers.
 
@@ -26,9 +39,11 @@ Tokens are shared `ENV` (`-e`)
 
 ### Mount
 
-The container assumes the code to scanned to exist in `/workspace`
+The container expects the code to be scanned in `/workspace`.
 
 ## Build
+
+Each `build.sh` builds both variants of its image, then runs a set of checks against them.
 
 ```
 ./php/build.sh
@@ -36,18 +51,22 @@ The container assumes the code to scanned to exist in `/workspace`
 ./go/build.sh
 ```
 
+Optional build args:
+
+- `CLAUDE_INSTALL_BUST` — the agent install layers refresh once a day. Set this to anything new to force a refresh sooner.
+- `CODEX_VERSION` — pin the Codex CLI instead of taking the latest.
+- `GO_VERSION` — `go/build.sh` only, see [`go/README.md`](go/README.md).
+
 ## Run
 
-Mount the current folder to do scanning work with:
+`./run.sh <container>` mounts `$PWD`, passes whichever token the container needs, and starts the agent. Mount something else with `WORKSPACE=/some/path`, or pass a command to get that instead of the agent:
 
-Containers:
-- `claude-php`, `codex-php`
-- `claude-ext`, `codex-ext`
-- `claude-go`, `codex-go`
+```shell
+./run.sh claude-php
+./run.sh codex-ext bash
+```
 
-`./run.sh <container>` mounts `$PWD`, passes whichever token the container needs, and starts the agent.
-
-Example:
+The same by hand:
 
 ```shell
 docker run --rm -it \

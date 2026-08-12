@@ -2,7 +2,6 @@
 
 FROM debian:bookworm-slim AS base
 
-# Empty GO_VERSION = resolve the current stable release at build time.
 # Pin to e.g. go1.25.0 for a reproducible image.
 ARG GO_VERSION=
 
@@ -122,7 +121,6 @@ CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
 FROM base AS codex
 
 # Static musl binary, so the npm package (and Node with it) is not needed.
-# Empty CODEX_VERSION = latest release at build time.
 ARG CODEX_INSTALL_BUST=0
 ARG CODEX_VERSION=
 RUN set -eux; \

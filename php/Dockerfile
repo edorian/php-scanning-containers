@@ -31,7 +31,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     COMPOSER_ALLOW_SUPERUSER=1 \
     COLORTERM=truecolor
 
-# Toolchain - Kept so the container can rebuild
+# Kept so the container can rebuild
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf bison re2c pkg-config make \
         ca-certificates curl git xz-utils unzip less \
@@ -55,7 +55,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
  && pip3 install --break-system-packages --no-cache-dir semgrep
 
-# php
 WORKDIR /opt
 RUN git clone --depth 1 --branch "${PHP_GIT_REF}" "${PHP_GIT_URL}" php-src
 WORKDIR /opt/php-src
@@ -132,7 +131,6 @@ CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
 FROM base AS codex
 
 # Static musl binary, so the npm package (and Node with it) is not needed.
-# Empty CODEX_VERSION = latest release at build time.
 ARG CODEX_INSTALL_BUST=0
 ARG CODEX_VERSION=
 RUN set -eux; \

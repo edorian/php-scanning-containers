@@ -34,7 +34,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ASAN_OPTIONS="symbolize=1:strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=0:print_summary=1" \
     UBSAN_OPTIONS="print_stacktrace=1:print_summary=1"
 
-# Toolchain
 # Both gcc (build-essential) and clang/llvm are installed so extension /
 # harness code can be built with either. PHP itself is built with gcc
 # below; clang-built .so files that get dlopen'd into PHP will clash with
@@ -66,19 +65,55 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
  && pip3 install --break-system-packages --no-cache-dir semgrep
 
-# PHP - debug build with AddressSanitizer + UndefinedBehaviorSanitizer.
+# PHP is built twice from the clone at ${PHP_GIT_REF}:
 #
-# - --enable-debug         : ZEND_DEBUG, assertions, no -O2 stripping
-# - --enable-address-sanitizer / --enable-undefined-sanitizer: PHP's own
-#   configure switches; they append -fsanitize=address -DZEND_TRACK_ARENA_ALLOC
-#   -fsanitize=undefined -fno-sanitize-recover=undefined -fno-sanitize=object-size
-#   into the PHP build. We re-export the same set as env CFLAGS/LDFLAGS *after*
-#   `make install` so phpize-built extensions inherit the matching flags.
+#   /usr/local/php       debug + ZTS + ASan + UBSan   `php`       (default)
+#   /usr/local/php-prod  release NTS, uninstrumented  `php-prod`
+#
+# Which build proves what, and why neither substitutes for the other:
+# see container-rules.md.
 WORKDIR /opt
 RUN git clone --depth 1 --branch "${PHP_GIT_REF}" "${PHP_GIT_URL}" php-src
 WORKDIR /opt/php-src
-RUN ./buildconf --force \
+RUN ./buildconf --force
+
+ARG PHP_COMMON_CONFIGURE="\
+    --enable-fpm --with-fpm-user=www-data --with-fpm-group=www-data \
+    --enable-cli \
+    --enable-bcmath --enable-calendar --enable-exif --enable-ftp \
+    --enable-gd --with-jpeg --with-webp --with-xpm --with-freetype \
+    --enable-intl --enable-mbstring --enable-mysqlnd --enable-opcache \
+    --enable-pcntl --enable-shmop --enable-soap --enable-sockets \
+    --enable-sysvmsg --enable-sysvsem --enable-sysvshm \
+    --with-bz2 --with-curl --with-ffi --with-gmp \
+    --with-ldap --with-ldap-sasl --with-mhash --with-mysqli \
+    --with-openssl --with-password-argon2 \
+    --with-pdo-mysql --with-pdo-pgsql --with-pdo-sqlite --with-pgsql \
+    --with-readline --with-sodium --with-sqlite3 \
+    --with-tidy --with-xsl --with-zip --with-zlib --with-pear"
+
+# Production build first, in a throwaway copy of the pristine tree, so
+# /opt/php-src is left holding the sanitizer build's objects and config —
+# matching the `php` on PATH. Ships php.ini-production verbatim: this build
+# is only useful as a stand-in for a real deployment if it is left stock.
+RUN cp -a /opt/php-src /tmp/php-src-prod \
+ && cd /tmp/php-src-prod \
  && ./configure \
+        --prefix=/usr/local/php-prod \
+        --with-config-file-path=/usr/local/php-prod/etc \
+        --with-config-file-scan-dir=/usr/local/php-prod/etc/conf.d \
+        ${PHP_COMMON_CONFIGURE} \
+ && make -j"$(nproc)" \
+ && make install \
+ && mkdir -p /usr/local/php-prod/etc/conf.d \
+ && cp php.ini-production /usr/local/php-prod/etc/php.ini \
+ && cd / && rm -rf /tmp/php-src-prod
+
+# - --enable-debug         : ZEND_DEBUG, assertions, no -O2 stripping
+# - --enable-address-sanitizer / --enable-undefined-sanitizer: PHP's own
+#   configure switches. The ENV CFLAGS/LDFLAGS further down re-export the same
+#   set they append, so phpize-built extensions inherit matching flags.
+RUN ./configure \
         --prefix=/usr/local/php \
         --with-config-file-path=/usr/local/php/etc \
         --with-config-file-scan-dir=/usr/local/php/etc/conf.d \
@@ -86,27 +121,34 @@ RUN ./buildconf --force \
         --enable-zts \
         --enable-address-sanitizer \
         --enable-undefined-sanitizer \
-        --enable-fpm --with-fpm-user=www-data --with-fpm-group=www-data \
-        --enable-cli \
-        --enable-bcmath --enable-calendar --enable-exif --enable-ftp \
-        --enable-gd --with-jpeg --with-webp --with-xpm --with-freetype \
-        --enable-intl --enable-mbstring --enable-mysqlnd --enable-opcache \
-        --enable-pcntl --enable-shmop --enable-soap --enable-sockets \
-        --enable-sysvmsg --enable-sysvsem --enable-sysvshm \
-        --with-bz2 --with-curl --with-ffi --with-gmp \
-        --with-ldap --with-ldap-sasl --with-mhash --with-mysqli \
-        --with-openssl --with-password-argon2 \
-        --with-pdo-mysql --with-pdo-pgsql --with-pdo-sqlite --with-pgsql \
-        --with-readline --with-sodium --with-sqlite3 \
-        --with-tidy --with-xsl --with-zip --with-zlib --with-pear \
+        ${PHP_COMMON_CONFIGURE} \
  && make -j"$(nproc)" \
  && make install \
  && mkdir -p /usr/local/php/etc/conf.d \
  && cp php.ini-development /usr/local/php/etc/php.ini \
  && printf 'zend.assertions=1\n' >> /usr/local/php/etc/php.ini
 
+# `prod-env CMD…` runs CMD against the release build: its bin/sbin first on
+# PATH, and every sanitizer knob cleared. Clearing matters — the CFLAGS below
+# are exported image-wide, so without this a `.so` built for the production
+# PHP would come out instrumented and abort on load against an uninstrumented
+# binary. Unsetting USE_ZEND_ALLOC restores the Zend allocator, i.e. the
+# heap behaviour a real deployment has.
+RUN cat > /usr/local/bin/prod-env <<'SH' && chmod +x /usr/local/bin/prod-env
+#!/bin/sh
+unset CFLAGS CXXFLAGS LDFLAGS ASAN_OPTIONS UBSAN_OPTIONS USE_ZEND_ALLOC
+PATH=/usr/local/php-prod/bin:/usr/local/php-prod/sbin:$PATH
+export PATH
+exec "$@"
+SH
+
+RUN cat > /usr/local/bin/php-prod <<'SH' && chmod +x /usr/local/bin/php-prod
+#!/bin/sh
+exec /usr/local/bin/prod-env /usr/local/php-prod/bin/php "$@"
+SH
+
 # Sanitizer flags for downstream extension builds (phpize && ./configure picks
-# them up via env). Match the set PHP itself was built with.
+# them up via env). Match the set the sanitizer PHP was built with.
 ENV CFLAGS="-fsanitize=address -DZEND_TRACK_ARENA_ALLOC -fsanitize=undefined -fno-sanitize-recover=undefined -fno-sanitize=object-size -fno-omit-frame-pointer -g -O1" \
     CXXFLAGS="-fsanitize=address -DZEND_TRACK_ARENA_ALLOC -fsanitize=undefined -fno-sanitize-recover=undefined -fno-sanitize=object-size -fno-omit-frame-pointer -g -O1" \
     LDFLAGS="-fsanitize=address -fsanitize=undefined"
@@ -161,7 +203,6 @@ CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
 FROM base AS codex
 
 # Static musl binary, so the npm package (and Node with it) is not needed.
-# Empty CODEX_VERSION = latest release at build time.
 ARG CODEX_INSTALL_BUST=0
 ARG CODEX_VERSION=
 RUN set -eux; \

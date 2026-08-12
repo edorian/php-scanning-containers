@@ -2,8 +2,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# CLAUDE_INSTALL_BUST changes once per day so the agent install layers
-# refresh daily. To force a refresh mid-day, pass CLAUDE_INSTALL_BUST=<anything new>.
 BUST=${CLAUDE_INSTALL_BUST:-$(date +%Y-%m-%d)}
 
 docker build --target claude \
@@ -27,9 +25,8 @@ shared_checks() {
     check "cgo"            sh -c 'go env CGO_ENABLED | grep -qx 1'
     check "stdlib source"  test -d /usr/local/go/src/runtime
 
-    # End-to-end: a program with a known data race must be caught by the race
-    # detector. Exercises cgo, the external linker, and the race runtime in one
-    # shot — all three break silently otherwise.
+    # Exercises cgo, the external linker, and the race runtime in one shot —
+    # all three break silently otherwise.
     check "race e2e"       sh -c '
         mkdir -p /tmp/race && cd /tmp/race
         cat > go.mod <<EOF

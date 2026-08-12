@@ -6,32 +6,7 @@ The current stable Go toolchain from the official tarball, plus the usual
 analysis tools (`staticcheck`, `golangci-lint`, `govulncheck`, `gosec`,
 `dlv`), Claude Code, and the GitHub CLI.
 
-`build.sh` also produces `codex-go`: the same image with the Codex CLI in place of Claude Code.
-
-## Build
-
-```bash
-./build.sh
-```
-
-Pin the toolchain with `GO_VERSION=go1.25.0 ./build.sh`; the default
-resolves whatever `https://go.dev/VERSION?m=text` reports at build time.
-
-## Auth
-
-`-e CLAUDE_CODE_OAUTH_TOKEN` (required, `-e CODEX_ACCESS_TOKEN` or `-e CODEX_AUTH_JSON` for `codex-go`) and `-e GH_TOKEN` (optional) - see the root [`README.md`](../README.md).
-
-## Run
-
-Mounts the current folder and launches Claude Code.
-
-```bash
-docker run --rm -it \
-    -v "$PWD:/workspace" \
-    -e CLAUDE_CODE_OAUTH_TOKEN \
-    -e GH_TOKEN \
-    claude-go
-```
+Build, auth and run: see the root [`README.md`](../README.md).
 
 ## What's in the image
 
@@ -47,6 +22,9 @@ docker run --rm -it \
 | `gh`, `claude`, `semgrep`, `jq`, `rg`, `fd`              | On PATH                                  |
 
 ## Toolchain version
+
+The baked-in toolchain defaults to whatever `https://go.dev/VERSION?m=text`
+reports at build time. Pin it with `GO_VERSION=go1.25.0 ./build.sh`.
 
 `GOTOOLCHAIN=auto`, so `go` downloads and uses whatever version the
 project's `go.mod` requires. The baked-in version is only the floor —

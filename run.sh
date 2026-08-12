@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Launch a scanning container on the current directory.
 #
-#   ./run.sh claude-php          # claude on $PWD
-#   ./run.sh codex-go            # codex --yolo on $PWD
+#   ./run.sh claude-php
+#   ./run.sh codex-go
 #   ./run.sh codex-ext bash      # a shell instead of the agent
 #
 # Mount something other than $PWD with WORKSPACE=/some/path ./run.sh …

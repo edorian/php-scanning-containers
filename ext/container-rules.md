@@ -6,11 +6,35 @@ shell commands, write files, and install packages freely.
 
 ## What's special about this image
 
-PHP is built **debug + ZTS + AddressSanitizer + UndefinedBehaviorSanitizer**.
-Use it to catch memory errors, leaks, UB, and refcount/object lifetime
-bugs in C extensions. ZTS means globals must go through the `ZEND_TSRMG`
-accessors — a `.so` that stashes state in plain C globals will build and
-then misbehave under threads.
+**Two PHP builds**, so both halves of a security claim can be tested:
+
+- `php` — debug + ZTS + AddressSanitizer + UndefinedBehaviorSanitizer.
+  Catches memory errors, leaks, UB, and refcount/object lifetime bugs.
+  ZTS means globals must go through the `ZEND_TSRMG` accessors — a `.so`
+  that stashes state in plain C globals will build and then misbehave
+  under threads.
+- `php-prod` — release, NTS, uninstrumented, stock `php.ini-production`.
+  A stand-in for what people actually run.
+
+### Which build proves what
+
+This is the most important thing to get right in this image, because the
+two directions are **not symmetric**:
+
+- **A memory-safety bug is proved under `php`** (ASan/UBSan), never under
+  `php-prod`. A release build silently tolerates uninitialised reads,
+  small out-of-bounds accesses, and use-after-frees that land on
+  unrecycled memory. "I ran it under `php-prod` and nothing crashed" does
+  **not** refute a claimed memory bug — do not close a report on that
+  basis. Under ASan the same access is flagged every time.
+- **Exploitability is proved under `php-prod`**, never under `php`.
+  Sanitizer builds change heap layout, add red zones, disable the Zend
+  allocator (`USE_ZEND_ALLOC=0`) and drop optimisation, so what an
+  overflow reaches there says little about what it reaches in production.
+
+A complete finding reproduces under `php` **with a sanitizer report**, and
+shows a concrete effect under `php-prod`. Report which build each result
+came from — an unlabelled "it crashed" is not actionable.
 
 ## Layout
 
@@ -19,8 +43,14 @@ then misbehave under threads.
   `php-config`, `php-fpm` on PATH and all resolving to this build, so a
   `.so` you build here links against the matching Zend ABI and is
   instrumented. `php -v` reports `(DEBUG)` plus sanitizer config.
-- `/opt/php-src` — PHP source tree, build deps installed. Useful for
-  reading Zend internals (`Zend/zend_*.h`) when triaging crashes.
+- `/usr/local/php-prod` — release NTS PHP. Reach it with `php-prod`
+  (the CLI) or `prod-env CMD…` (anything else — `phpize`, `configure`,
+  `make`, `php-fpm`). `prod-env` front-loads its `bin`/`sbin` on PATH and
+  clears `CFLAGS`/`LDFLAGS`/`*SAN_OPTIONS`/`USE_ZEND_ALLOC`; without it a
+  `.so` built for this PHP comes out instrumented and aborts on load.
+- `/opt/php-src` — PHP source tree, build deps installed, left configured
+  for the sanitizer build. Useful for reading Zend internals
+  (`Zend/zend_*.h`) when triaging crashes.
 - `composer`, `gh`, `gdb`, `valgrind`, `strace`, `semgrep`, `zizmor`,
   `jq`, `rg`, `fd` — on PATH.
   (Valgrind cannot be combined with ASan — pick one per run.)
@@ -34,7 +64,7 @@ then misbehave under threads.
 
 Read /opt/php-src/CODING_STANDARDS.md
 
-Output that should persist goes into /workspace 
+Output that should persist goes into /workspace
 
 ## gcc vs clang
 
@@ -62,6 +92,11 @@ what PHP itself was built with, so `phpize && ./configure && make` picks
 them up. Read the current values with `env | grep -E 'FLAGS|SAN_'` —
 that is the canonical source, not this file.
 
+They are exported image-wide, which is why `prod-env` exists: it clears
+all of them before running its command, so a build for `php-prod` is a
+plain uninstrumented one. Anything you build for the production PHP must
+go through `prod-env`.
+
 Why the non-obvious ones are set:
 
 - `-fno-sanitize=object-size` — PHP's `zend_function` union violates
@@ -82,15 +117,29 @@ Why the non-obvious ones are set:
    running things over static reasoning.
 2. Build the extension before analyzing. If `config.m4` exists but no
    `Makefile`, run `phpize && ./configure && make`.
-3. Run the project's `.phpt` tests if any exist. A clean `make test`
+3. State which PHP produced every result — `php` or `php-prod`. Never
+   refute a memory-safety claim with a clean `php-prod` run; that build
+   cannot detect one. If you could not reproduce something, say which
+   build you tried and what you would need to go further, rather than
+   calling it not reproducible.
+4. To test against production, build a second `.so` — the two PHPs are
+   ABI-incompatible, so the instrumented one will not load into
+   `php-prod`. Use a scratch copy so the object trees don't collide:
+   `cp -a /workspace /tmp/ext-prod && cd /tmp/ext-prod &&
+   prod-env sh -c 'phpize && ./configure && make -j"$(nproc)"'`
+5. `php-prod` runs stock `php.ini-production`: `display_errors=Off`,
+   `zend.assertions=-1`. A repro that prints nothing there is very likely
+   the ini — re-run with `php-prod -d display_errors=1 -d
+   error_reporting=E_ALL` before drawing any conclusion.
+6. Run the project's `.phpt` tests if any exist. A clean `make test`
    summary doesn't mean a clean sanitizer run — grep the test logs for
    `AddressSanitizer:` / `UndefinedBehaviorSanitizer:` / `runtime error:`.
-4. When triaging a crash:
+7. When triaging a crash:
    - Re-run under `gdb --args php -d extension=… script.php`, `bt full`.
    - Cross-reference with `/opt/php-src` headers for `ZVAL_*`,
      `Z_ADDREF_P`, `OBJ_RELEASE`, arena vs. emalloc usage.
    - Sanitizer reports are authoritative — don't dismiss them as noise.
-5. Install missing build deps (apt, pecl) without asking; mention what
+8. Install missing build deps (apt, pecl) without asking; mention what
    you added in your reply.
-6. Report sanitizer findings verbatim (SUMMARY line plus the top of the
+9. Report sanitizer findings verbatim (SUMMARY line plus the top of the
    stack) so the user can grep for them.

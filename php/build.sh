@@ -2,8 +2,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# CLAUDE_INSTALL_BUST changes once per day so the agent install layers
-# refresh daily. To force a refresh mid-day, pass CLAUDE_INSTALL_BUST=<anything new>.
 BUST=${CLAUDE_INSTALL_BUST:-$(date +%Y-%m-%d)}
 
 docker build --target claude \
