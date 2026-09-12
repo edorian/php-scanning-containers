@@ -1,12 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# zizmor — separate builder stage. Upstream ghcr.io/zizmorcore/zizmor is
-# Alpine/musl, won't run on our debian/glibc base, so we pull the matching
-# glibc release tarball from GitHub. Bump ZIZMOR_VERSION to update.
 FROM debian:bookworm-slim AS zizmor
 ARG ZIZMOR_VERSION=1.29.0
 
-# Older releases nested the binary in zizmor-<target>/; find it either way.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && arch="$(dpkg --print-architecture)" \
@@ -34,11 +30,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ASAN_OPTIONS="symbolize=1:strict_string_checks=1:detect_stack_use_after_return=1:detect_leaks=0:print_summary=1" \
     UBSAN_OPTIONS="print_stacktrace=1:print_summary=1"
 
-# Both gcc (build-essential) and clang/llvm are installed so extension /
-# harness code can be built with either. PHP itself is built with gcc
-# below; clang-built .so files that get dlopen'd into PHP will clash with
-# PHP's gcc libasan runtime — use clang for standalone fuzz harnesses /
-# test programs, gcc for anything loaded into the PHP binary.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf bison re2c pkg-config make \
         clang lld llvm clang-tools clang-format clang-tidy \
@@ -65,13 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
  && pip3 install --break-system-packages --no-cache-dir semgrep
 
-# PHP is built twice from the clone at ${PHP_GIT_REF}:
-#
-#   /usr/local/php       debug + ZTS + ASan + UBSan   `php`       (default)
-#   /usr/local/php-prod  release NTS, uninstrumented  `php-prod`
-#
-# Which build proves what, and why neither substitutes for the other:
-# see container-rules.md.
+# `php` is instrumented; `php-prod` is release NTS.
 WORKDIR /opt
 RUN git clone --depth 1 --branch "${PHP_GIT_REF}" "${PHP_GIT_URL}" php-src
 WORKDIR /opt/php-src
@@ -92,10 +77,7 @@ ARG PHP_COMMON_CONFIGURE="\
     --with-readline --with-sodium --with-sqlite3 \
     --with-tidy --with-xsl --with-zip --with-zlib --with-pear"
 
-# Production build first, in a throwaway copy of the pristine tree, so
-# /opt/php-src is left holding the sanitizer build's objects and config —
-# matching the `php` on PATH. Ships php.ini-production verbatim: this build
-# is only useful as a stand-in for a real deployment if it is left stock.
+# Build production in a copy so /opt/php-src retains the instrumented tree.
 RUN cp -a /opt/php-src /tmp/php-src-prod \
  && cd /tmp/php-src-prod \
  && ./configure \
@@ -109,10 +91,6 @@ RUN cp -a /opt/php-src /tmp/php-src-prod \
  && cp php.ini-production /usr/local/php-prod/etc/php.ini \
  && cd / && rm -rf /tmp/php-src-prod
 
-# - --enable-debug         : ZEND_DEBUG, assertions, no -O2 stripping
-# - --enable-address-sanitizer / --enable-undefined-sanitizer: PHP's own
-#   configure switches. The ENV CFLAGS/LDFLAGS further down re-export the same
-#   set they append, so phpize-built extensions inherit matching flags.
 RUN ./configure \
         --prefix=/usr/local/php \
         --with-config-file-path=/usr/local/php/etc \
@@ -128,12 +106,7 @@ RUN ./configure \
  && cp php.ini-development /usr/local/php/etc/php.ini \
  && printf 'zend.assertions=1\n' >> /usr/local/php/etc/php.ini
 
-# `prod-env CMD…` runs CMD against the release build: its bin/sbin first on
-# PATH, and every sanitizer knob cleared. Clearing matters — the CFLAGS below
-# are exported image-wide, so without this a `.so` built for the production
-# PHP would come out instrumented and abort on load against an uninstrumented
-# binary. Unsetting USE_ZEND_ALLOC restores the Zend allocator, i.e. the
-# heap behaviour a real deployment has.
+# Run commands against the release build without sanitizer settings.
 RUN cat > /usr/local/bin/prod-env <<'SH' && chmod +x /usr/local/bin/prod-env
 #!/bin/sh
 unset CFLAGS CXXFLAGS LDFLAGS ASAN_OPTIONS UBSAN_OPTIONS USE_ZEND_ALLOC
@@ -147,8 +120,6 @@ RUN cat > /usr/local/bin/php-prod <<'SH' && chmod +x /usr/local/bin/php-prod
 exec /usr/local/bin/prod-env /usr/local/php-prod/bin/php "$@"
 SH
 
-# Sanitizer flags for downstream extension builds (phpize && ./configure picks
-# them up via env). Match the set the sanitizer PHP was built with.
 ENV CFLAGS="-fsanitize=address -DZEND_TRACK_ARENA_ALLOC -fsanitize=undefined -fno-sanitize-recover=undefined -fno-sanitize=object-size -fno-omit-frame-pointer -g -O1" \
     CXXFLAGS="-fsanitize=address -DZEND_TRACK_ARENA_ALLOC -fsanitize=undefined -fno-sanitize-recover=undefined -fno-sanitize=object-size -fno-omit-frame-pointer -g -O1" \
     LDFLAGS="-fsanitize=address -fsanitize=undefined"
@@ -156,17 +127,13 @@ ENV CFLAGS="-fsanitize=address -DZEND_TRACK_ARENA_ALLOC -fsanitize=undefined -fn
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 COPY --from=zizmor /usr/local/bin/zizmor /usr/local/bin/zizmor
 
-# A login shell (`bash -lc`) re-sets PATH from /etc/profile and drops
-# everything ENV added. Codex runs commands that way; re-export it.
+# Preserve PATH in login shells.
 RUN printf 'export PATH=%s\n' "$PATH" > /etc/profile.d/10-path.sh
 
 FROM base AS claude
 
-# build.sh sets CLAUDE_INSTALL_BUST to today's date by default, so this
-# layer (and everything below it) refreshes once per day. Pass a different
-# value (or use --no-cache) to force a mid-day refresh.
 ARG CLAUDE_INSTALL_BUST=0
-RUN echo "claude install bust=${CLAUDE_INSTALL_BUST}" \
+RUN : "${CLAUDE_INSTALL_BUST}" \
  && curl -fsSL https://claude.ai/install.sh | bash
 
 RUN printf '%s' '{"hasCompletedOnboarding":true,"hasTrustDialogAccepted":true,"hasTrustDialogHooksAccepted":true,"projects":{"/workspace":{"hasTrustDialogAccepted":true,"hasTrustDialogHooksAccepted":true}}}' \
@@ -190,9 +157,7 @@ JSON
 
 COPY container-rules.md /root/.claude/CLAUDE.md
 
-# Tokens injected at run time (-e). gh reads GH_TOKEN directly, no `gh auth
-# login`; empty default = logged out. IS_SANDBOX=1 lets
-# --dangerously-skip-permissions run as root.
+# IS_SANDBOX=1 lets --dangerously-skip-permissions run as root.
 ENV CLAUDE_CODE_OAUTH_TOKEN="" \
     GH_TOKEN="" \
     IS_SANDBOX=1
@@ -202,11 +167,10 @@ CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
 
 FROM base AS codex
 
-# Static musl binary, so the npm package (and Node with it) is not needed.
 ARG CODEX_INSTALL_BUST=0
 ARG CODEX_VERSION=
-RUN set -eux; \
-    echo "codex install bust=${CODEX_INSTALL_BUST}"; \
+RUN set -eu; \
+    : "${CODEX_INSTALL_BUST}"; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
         amd64) target=x86_64-unknown-linux-musl ;; \
@@ -214,17 +178,15 @@ RUN set -eux; \
         *) echo "codex: unsupported arch $arch" >&2; exit 1 ;; \
     esac; \
     tag="${CODEX_VERSION:-$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)}"; \
-    mkdir -p /tmp/codex-dl; \
-    curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-${target}.tar.gz" \
-        | tar xz -C /tmp/codex-dl; \
-    install -m 0755 "$(find /tmp/codex-dl -type f -name 'codex*' | head -n1)" /usr/local/bin/codex; \
-    rm -rf /tmp/codex-dl; \
-    codex --version
+    curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-package-${target}.tar.gz" \
+        | tar xz --no-same-owner -C /usr/local; \
+    codex --version; \
+    test -x /usr/local/bin/codex-code-mode-host
 
-# Also makes a bare `codex` behave like `codex --yolo`.
 RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<'TOML'
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
 
 [projects."/workspace"]
 trust_level = "trusted"
@@ -240,8 +202,16 @@ WORKDIR /workspace
 RUN cat > /usr/local/bin/codex-entrypoint <<'SH' && chmod +x /usr/local/bin/codex-entrypoint
 #!/bin/sh
 if [ -n "${CODEX_AUTH_JSON-}" ]; then
-    printf '%s' "$CODEX_AUTH_JSON" > /root/.codex/auth.json
-    chmod 600 /root/.codex/auth.json
+    umask 077
+    printf '%s' "${CODEX_AUTH_JSON}" > /root/.codex/auth.json
+    unset CODEX_AUTH_JSON
+fi
+case "${1-}:${2-}" in
+    codex:login) exec "$@" ;;
+esac
+if [ -z "${CODEX_ACCESS_TOKEN-}" ] && [ ! -s /root/.codex/auth.json ]; then
+    echo "No Codex credentials. Use run.sh or pass CODEX_AUTH_JSON." >&2
+    exit 1
 fi
 exec "$@"
 SH

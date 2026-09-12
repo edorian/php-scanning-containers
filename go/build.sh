@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+source ../build-lib.sh
 
 BUST=${CLAUDE_INSTALL_BUST:-$(date +%Y-%m-%d)}
 
-docker build --target claude \
+echo "Building Go images..."
+docker build --quiet --target claude \
     --build-arg CLAUDE_INSTALL_BUST="$BUST" \
-    --build-arg GO_VERSION="${GO_VERSION:-}" -t claude-go .
-docker build --target codex \
+    --build-arg GO_VERSION="${GO_VERSION:-}" -t claude-go . > /dev/null
+docker build --quiet --target codex \
     --build-arg CODEX_INSTALL_BUST="$BUST" \
     --build-arg CODEX_VERSION="${CODEX_VERSION:-}" \
-    --build-arg GO_VERSION="${GO_VERSION:-}" -t codex-go .
-
-IMAGE=""
-check() {
-    printf "\n"'==> [%s] %s\n' "$IMAGE" "$1"; shift
-    docker run --rm --entrypoint "" "$IMAGE" "$@"
-}
+    --build-arg GO_VERSION="${GO_VERSION:-}" -t codex-go . > /dev/null
 
 shared_checks() {
     check "login shell PATH" bash -lc 'command -v go'
@@ -25,8 +21,6 @@ shared_checks() {
     check "cgo"            sh -c 'go env CGO_ENABLED | grep -qx 1'
     check "stdlib source"  test -d /usr/local/go/src/runtime
 
-    # Exercises cgo, the external linker, and the race runtime in one shot —
-    # all three break silently otherwise.
     check "race e2e"       sh -c '
         mkdir -p /tmp/race && cd /tmp/race
         cat > go.mod <<EOF
@@ -52,7 +46,6 @@ func main() {
 EOF
         out=$(go run -race . 2>&1 || true)
         echo "$out" | grep -q "DATA RACE" || { echo "race detector did not fire:"; echo "$out"; exit 1; }
-        echo "  race detector OK"
     '
 
     check "staticcheck"    staticcheck --version
@@ -84,7 +77,6 @@ shared_checks
 check "codex"          codex --version
 check "codex --yolo"   codex --yolo --version
 check "AGENTS.md"      test -s /root/.codex/AGENTS.md
-printf "\n"'==> [%s] CODEX_AUTH_JSON\n' "$IMAGE"
-docker run --rm -e CODEX_AUTH_JSON='{"probe":true}' codex-go sh -c 'cat /root/.codex/auth.json'
-
-echo "OK"
+check "code-mode host" test -x /usr/local/bin/codex-code-mode-host
+check_codex_auth
+echo "Built and checked claude-go and codex-go."

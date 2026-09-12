@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+source ../build-lib.sh
 
 BUST=${CLAUDE_INSTALL_BUST:-$(date +%Y-%m-%d)}
 
-docker build --target claude \
+echo "Building PHP images..."
+docker build --quiet --target claude \
     --build-arg CLAUDE_INSTALL_BUST="$BUST" \
-    --build-arg PHP_GIT_REF="${PHP_GIT_REF:-php-8.5.9}" -t claude-php .
-docker build --target codex \
+    --build-arg PHP_GIT_REF="${PHP_GIT_REF:-php-8.5.9}" -t claude-php . > /dev/null
+docker build --quiet --target codex \
     --build-arg CODEX_INSTALL_BUST="$BUST" \
     --build-arg CODEX_VERSION="${CODEX_VERSION:-}" \
-    --build-arg PHP_GIT_REF="${PHP_GIT_REF:-php-8.5.9}" -t codex-php .
-
-IMAGE=""
-check() {
-    printf "\n"'==> [%s] %s\n' "$IMAGE" "$1"; shift
-    docker run --rm --entrypoint "" "$IMAGE" "$@"
-}
+    --build-arg PHP_GIT_REF="${PHP_GIT_REF:-php-8.5.9}" -t codex-php . > /dev/null
 
 shared_checks() {
     check "login shell PATH" bash -lc 'command -v php'
@@ -42,7 +38,6 @@ shared_checks
 check "codex"          codex --version
 check "codex --yolo"   codex --yolo --version
 check "AGENTS.md"      test -s /root/.codex/AGENTS.md
-printf "\n"'==> [%s] CODEX_AUTH_JSON\n' "$IMAGE"
-docker run --rm -e CODEX_AUTH_JSON='{"probe":true}' codex-php sh -c 'cat /root/.codex/auth.json'
-
-echo "OK"
+check "code-mode host" test -x /usr/local/bin/codex-code-mode-host
+check_codex_auth
+echo "Built and checked claude-php and codex-php."

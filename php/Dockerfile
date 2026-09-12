@@ -1,12 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# zizmor — separate builder stage. Upstream ghcr.io/zizmorcore/zizmor is
-# Alpine/musl, won't run on our debian/glibc base, so we pull the matching
-# glibc release tarball from GitHub. Bump ZIZMOR_VERSION to update.
 FROM debian:bookworm-slim AS zizmor
 ARG ZIZMOR_VERSION=1.29.0
 
-# Older releases nested the binary in zizmor-<target>/; find it either way.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && arch="$(dpkg --print-architecture)" \
@@ -31,7 +27,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     COMPOSER_ALLOW_SUPERUSER=1 \
     COLORTERM=truecolor
 
-# Kept so the container can rebuild
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf bison re2c pkg-config make \
         ca-certificates curl git xz-utils unzip less \
@@ -84,17 +79,13 @@ RUN ./buildconf --force \
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 COPY --from=zizmor /usr/local/bin/zizmor /usr/local/bin/zizmor
 
-# A login shell (`bash -lc`) re-sets PATH from /etc/profile and drops
-# everything ENV added. Codex runs commands that way; re-export it.
+# Preserve PATH in login shells.
 RUN printf 'export PATH=%s\n' "$PATH" > /etc/profile.d/10-path.sh
 
 FROM base AS claude
 
-# build.sh sets CLAUDE_INSTALL_BUST to today's date by default, so this
-# layer (and everything below it) refreshes once per day. Pass a different
-# value (or use --no-cache) to force a mid-day refresh.
 ARG CLAUDE_INSTALL_BUST=0
-RUN echo "claude install bust=${CLAUDE_INSTALL_BUST}" \
+RUN : "${CLAUDE_INSTALL_BUST}" \
  && curl -fsSL https://claude.ai/install.sh | bash
 
 RUN printf '%s' '{"hasCompletedOnboarding":true,"hasTrustDialogAccepted":true,"hasTrustDialogHooksAccepted":true,"projects":{"/workspace":{"hasTrustDialogAccepted":true,"hasTrustDialogHooksAccepted":true}}}' \
@@ -118,9 +109,7 @@ JSON
 
 COPY container-rules.md /root/.claude/CLAUDE.md
 
-# Tokens injected at run time (-e). gh reads GH_TOKEN directly, no `gh auth
-# login`; empty default = logged out. IS_SANDBOX=1 lets
-# --dangerously-skip-permissions run as root.
+# IS_SANDBOX=1 lets --dangerously-skip-permissions run as root.
 ENV CLAUDE_CODE_OAUTH_TOKEN="" \
     GH_TOKEN="" \
     IS_SANDBOX=1
@@ -130,11 +119,10 @@ CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
 
 FROM base AS codex
 
-# Static musl binary, so the npm package (and Node with it) is not needed.
 ARG CODEX_INSTALL_BUST=0
 ARG CODEX_VERSION=
-RUN set -eux; \
-    echo "codex install bust=${CODEX_INSTALL_BUST}"; \
+RUN set -eu; \
+    : "${CODEX_INSTALL_BUST}"; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
         amd64) target=x86_64-unknown-linux-musl ;; \
@@ -142,17 +130,15 @@ RUN set -eux; \
         *) echo "codex: unsupported arch $arch" >&2; exit 1 ;; \
     esac; \
     tag="${CODEX_VERSION:-$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)}"; \
-    mkdir -p /tmp/codex-dl; \
-    curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-${target}.tar.gz" \
-        | tar xz -C /tmp/codex-dl; \
-    install -m 0755 "$(find /tmp/codex-dl -type f -name 'codex*' | head -n1)" /usr/local/bin/codex; \
-    rm -rf /tmp/codex-dl; \
-    codex --version
+    curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-package-${target}.tar.gz" \
+        | tar xz --no-same-owner -C /usr/local; \
+    codex --version; \
+    test -x /usr/local/bin/codex-code-mode-host
 
-# Also makes a bare `codex` behave like `codex --yolo`.
 RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<'TOML'
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
+cli_auth_credentials_store = "file"
 
 [projects."/workspace"]
 trust_level = "trusted"
@@ -168,8 +154,16 @@ WORKDIR /workspace
 RUN cat > /usr/local/bin/codex-entrypoint <<'SH' && chmod +x /usr/local/bin/codex-entrypoint
 #!/bin/sh
 if [ -n "${CODEX_AUTH_JSON-}" ]; then
-    printf '%s' "$CODEX_AUTH_JSON" > /root/.codex/auth.json
-    chmod 600 /root/.codex/auth.json
+    umask 077
+    printf '%s' "${CODEX_AUTH_JSON}" > /root/.codex/auth.json
+    unset CODEX_AUTH_JSON
+fi
+case "${1-}:${2-}" in
+    codex:login) exec "$@" ;;
+esac
+if [ -z "${CODEX_ACCESS_TOKEN-}" ] && [ ! -s /root/.codex/auth.json ]; then
+    echo "No Codex credentials. Use run.sh or pass CODEX_AUTH_JSON." >&2
+    exit 1
 fi
 exec "$@"
 SH

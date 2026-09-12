@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# Launch a scanning container on the current directory.
-#
-#   ./run.sh claude-php
-#   ./run.sh codex-go
-#   ./run.sh codex-ext bash      # a shell instead of the agent
-#
-# Mount something other than $PWD with WORKSPACE=/some/path ./run.sh …
 set -euo pipefail
 
 IMAGES="claude-php claude-ext claude-go codex-php codex-ext codex-go"
@@ -32,12 +25,27 @@ case "${image}" in
         docker_args+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}")
         ;;
     codex-*)
+        auth_file=${CODEX_AUTH_FILE:-$HOME/.codex/auth.json}
         if [ -n "${CODEX_ACCESS_TOKEN-}" ]; then
             docker_args+=(-e "CODEX_ACCESS_TOKEN=${CODEX_ACCESS_TOKEN}")
-        elif [ -n "${CODEX_AUTH_JSON-}" ]; then
-            docker_args+=(-e "CODEX_AUTH_JSON=${CODEX_AUTH_JSON}")
+        elif [ -f "${auth_file}" ]; then
+            command -v jq > /dev/null || {
+                echo "jq is required to prepare Codex credentials." >&2
+                exit 1
+            }
+            auth_json=$(jq -ce '
+                if (.tokens.access_token? | type) == "string" then
+                    .tokens.refresh_token = ""
+                else
+                    error("auth file has no ChatGPT access token")
+                end
+            ' "${auth_file}") || {
+                echo "Could not read ChatGPT credentials from ${auth_file}. Run codex login on the host." >&2
+                exit 1
+            }
+            docker_args+=(-e "CODEX_AUTH_JSON=${auth_json}")
         else
-            echo 'Neither CODEX_ACCESS_TOKEN nor CODEX_AUTH_JSON is set. For a personal account: codex login, then export CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"' >&2
+            echo "${auth_file} does not exist. Run codex login on the host." >&2
             exit 1
         fi
         ;;
@@ -47,4 +55,5 @@ if [ -n "${GH_TOKEN-}" ]; then
     docker_args+=(-e "GH_TOKEN=${GH_TOKEN}")
 fi
 
+printf 'Starting %s with %s mounted at /workspace\n' "$image" "$WORKSPACE"
 exec docker run "${docker_args[@]}" "${image}" "$@"

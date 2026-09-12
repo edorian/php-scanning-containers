@@ -36,13 +36,15 @@ claude setup-token
 export CLAUDE_CODE_OAUTH_TOKEN='...'
 ```
 
-For Codex Business or Enterprise, export `CODEX_ACCESS_TOKEN`. For a personal
-account, log in on the host and pass the resulting auth file:
+For Codex with a ChatGPT subscription, log in once on the host:
 
 ```sh
 codex login
-export CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"
 ```
+
+`run.sh` reads `~/.codex/auth.json`, removes its refresh token, and passes the
+result into the disposable container. This needs `jq`, but no auth mount or
+container login. Set `CODEX_AUTH_FILE` to use another cache file.
 
 Optionally set `GH_TOKEN` for authenticated GitHub CLI access. A read-only,
 fine-grained [personal access token](https://github.com/settings/personal-access-tokens)
@@ -50,32 +52,23 @@ is sufficient for public repositories.
 
 ## Run
 
-`run.sh` mounts the current directory at `/workspace`, forwards the relevant
-agent credentials, and starts the image's default agent. Use this layout:
-
-```text
-/workspace/<project>
-/workspace/findings.md
-/workspace/findings/     # optional supporting files
-```
-
-`findings.md` contains the complete report. Use `findings/` only when supporting
-files do not fit reasonably in the report.
+`run.sh` mounts the current directory at `/workspace`, forwards credentials,
+and starts the selected agent.
 
 ```sh
 ./run.sh claude-php
-./run.sh codex-ext
+./run.sh codex-php
 ```
 
 Pass a command to replace the agent, or set `WORKSPACE` to mount another
 workspace directory:
 
 ```sh
-./run.sh codex-ext bash
-WORKSPACE=/path/to/workspace ./run.sh claude-go
+./run.sh codex-php bash
+WORKSPACE=/path/to/workspace ./run.sh claude-php
 ```
 
-Equivalent direct Docker invocation:
+Without `run.sh`:
 
 ```sh
 docker run --rm -it \
@@ -83,4 +76,11 @@ docker run --rm -it \
   -e CLAUDE_CODE_OAUTH_TOKEN \
   -e GH_TOKEN \
   claude-php
+
+CODEX_AUTH_JSON="$(jq -c '.tokens.refresh_token = ""' ~/.codex/auth.json)" \
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -e CODEX_AUTH_JSON \
+  -e GH_TOKEN \
+  codex-php
 ```
