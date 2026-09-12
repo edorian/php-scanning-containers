@@ -1,0 +1,13 @@
+{
+  "model": "claude-opus-5",
+  "theme": "dark",
+  "effortLevel": "xhigh",
+  "tui": "default",
+  "skipDangerousModePermissionPrompt": true,
+  "awaySummaryEnabled": false,
+  "spinnerTipsEnabled": false,
+  "spinnerVerbs": {
+    "mode": "replace",
+    "verbs": ["Thinking"]
+  }
+}

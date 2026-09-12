@@ -23,7 +23,7 @@ Keep every persistent result in the findings:
 
 ## Environment
 
-- `php`, `phpize`, `php-config`, and `php-fpm` use the PHP 8.5.9 release NTS
+- `php`, `phpize`, `php-config`, and `php-fpm` use the PHP 8.5.10 release NTS
   build in `/usr/local/php`.
 - PHP source and build dependencies are in `/opt/php-src`.
 - `composer`, `gh`, `semgrep`, `zizmor`, `jq`, `rg`, and `fd` are on `PATH`.

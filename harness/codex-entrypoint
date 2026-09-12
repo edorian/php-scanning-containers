@@ -1,0 +1,14 @@
+#!/bin/sh
+if [ -n "${CODEX_AUTH_JSON-}" ]; then
+    umask 077
+    printf '%s' "${CODEX_AUTH_JSON}" > /root/.codex/auth.json
+    unset CODEX_AUTH_JSON
+fi
+case "${1-}:${2-}" in
+    codex:login) exec "$@" ;;
+esac
+if [ -z "${CODEX_ACCESS_TOKEN-}" ] && [ ! -s /root/.codex/auth.json ]; then
+    echo "No Codex credentials. Use run.sh or pass CODEX_AUTH_JSON." >&2
+    exit 1
+fi
+exec "$@"

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-FROM debian:bookworm-slim AS zizmor
-ARG ZIZMOR_VERSION=1.29.0
+FROM debian:trixie-slim AS zizmor
+ARG ZIZMOR_VERSION=1.30.1
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
@@ -17,7 +17,7 @@ RUN apt-get update \
  && install -m 0755 "$(find /tmp/zizmor-dl -type f -name zizmor)" /usr/local/bin/zizmor \
  && rm -rf /var/lib/apt/lists/* /tmp/zizmor-dl
 
-FROM debian:bookworm-slim AS base
+FROM debian:trixie-slim AS base
 
 ARG PHP_GIT_REF=master
 ARG PHP_GIT_URL=https://github.com/php/php-src.git
@@ -33,7 +33,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf bison re2c pkg-config make \
         clang lld llvm clang-tools clang-format clang-tidy \
-        libclang-rt-14-dev libc++-dev libc++abi-dev \
+        libclang-rt-dev libc++-dev libc++abi-dev \
         ca-certificates curl git xz-utils unzip less \
         jq ripgrep fd-find python3 python3-pip \
         gdb valgrind strace lsof \
@@ -136,26 +136,9 @@ ARG CLAUDE_INSTALL_BUST=0
 RUN : "${CLAUDE_INSTALL_BUST}" \
  && curl -fsSL https://claude.ai/install.sh | bash
 
-RUN printf '%s' '{"hasCompletedOnboarding":true,"hasTrustDialogAccepted":true,"hasTrustDialogHooksAccepted":true,"projects":{"/workspace":{"hasTrustDialogAccepted":true,"hasTrustDialogHooksAccepted":true}}}' \
-    > /root/.claude.json
-
-RUN mkdir -p /root/.claude && cat > /root/.claude/settings.json <<'JSON'
-{
-  "model": "claude-opus-4-8",
-  "theme": "dark",
-  "effortLevel": "xhigh",
-  "tui": "default",
-  "skipDangerousModePermissionPrompt": true,
-  "awaySummaryEnabled": false,
-  "spinnerTipsEnabled": false,
-  "spinnerVerbs": {
-    "mode": "replace",
-    "verbs": ["Thinking"]
-  }
-}
-JSON
-
-COPY container-rules.md /root/.claude/CLAUDE.md
+COPY harness/claude.json /root/.claude.json
+COPY harness/claude-settings.json /root/.claude/settings.json
+COPY ext/container-rules.md /root/.claude/CLAUDE.md
 
 # IS_SANDBOX=1 lets --dangerously-skip-permissions run as root.
 ENV CLAUDE_CODE_OAUTH_TOKEN="" \
@@ -178,43 +161,21 @@ RUN set -eu; \
         *) echo "codex: unsupported arch $arch" >&2; exit 1 ;; \
     esac; \
     tag="${CODEX_VERSION:-$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)}"; \
+    case "$tag" in rust-v*) ;; v*) tag="rust-${tag}" ;; *) tag="rust-v${tag}" ;; esac; \
     curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-package-${target}.tar.gz" \
         | tar xz --no-same-owner -C /usr/local; \
     codex --version; \
     test -x /usr/local/bin/codex-code-mode-host
 
-RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<'TOML'
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
-cli_auth_credentials_store = "file"
-
-[projects."/workspace"]
-trust_level = "trusted"
-TOML
-
-COPY container-rules.md /root/.codex/AGENTS.md
+COPY harness/codex-config.toml /root/.codex/config.toml
+COPY ext/container-rules.md /root/.codex/AGENTS.md
 
 ENV CODEX_ACCESS_TOKEN="" \
     CODEX_AUTH_JSON="" \
     GH_TOKEN=""
 WORKDIR /workspace
 
-RUN cat > /usr/local/bin/codex-entrypoint <<'SH' && chmod +x /usr/local/bin/codex-entrypoint
-#!/bin/sh
-if [ -n "${CODEX_AUTH_JSON-}" ]; then
-    umask 077
-    printf '%s' "${CODEX_AUTH_JSON}" > /root/.codex/auth.json
-    unset CODEX_AUTH_JSON
-fi
-case "${1-}:${2-}" in
-    codex:login) exec "$@" ;;
-esac
-if [ -z "${CODEX_ACCESS_TOKEN-}" ] && [ ! -s /root/.codex/auth.json ]; then
-    echo "No Codex credentials. Use run.sh or pass CODEX_AUTH_JSON." >&2
-    exit 1
-fi
-exec "$@"
-SH
+COPY --chmod=755 harness/codex-entrypoint /usr/local/bin/codex-entrypoint
 ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
 
 CMD ["codex", "--yolo"]
