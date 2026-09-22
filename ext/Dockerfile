@@ -130,7 +130,13 @@ COPY --from=zizmor /usr/local/bin/zizmor /usr/local/bin/zizmor
 # Preserve PATH in login shells.
 RUN printf 'export PATH=%s\n' "$PATH" > /etc/profile.d/10-path.sh
 
-FROM base AS claude
+FROM base AS tooling
+COPY harness/common-packages.txt /tmp/common-packages.txt
+RUN apt-get update \
+ && xargs -r apt-get install -y --no-install-recommends < /tmp/common-packages.txt \
+ && rm -rf /var/lib/apt/lists/* /tmp/common-packages.txt
+
+FROM tooling AS claude
 
 ARG CLAUDE_INSTALL_BUST=0
 RUN : "${CLAUDE_INSTALL_BUST}" \
@@ -148,7 +154,7 @@ WORKDIR /workspace
 
 CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
 
-FROM base AS codex
+FROM tooling AS codex
 
 ARG CODEX_INSTALL_BUST=0
 ARG CODEX_VERSION=

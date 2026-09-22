@@ -15,6 +15,7 @@ docker build -f Dockerfile --target codex \
     --build-arg PHP_GIT_REF="${PHP_GIT_REF:-master}" -t codex-ext ..
 
 shared_checks() {
+    check_common_tools
     check "login shell PATH" bash -lc 'command -v php'
     check "php"            php --version
     check "php debug"      sh -c 'php -v | grep -qi DEBUG || { echo "not a debug build"; exit 1; }'

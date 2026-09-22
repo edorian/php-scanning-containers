@@ -15,6 +15,7 @@ docker build -f Dockerfile --target codex \
     --build-arg GO_VERSION="${GO_VERSION:-}" -t codex-go ..
 
 shared_checks() {
+    check_common_tools
     check "login shell PATH" bash -lc 'command -v go'
     check "go"             go version
     check "gofmt"          sh -c 'command -v gofmt'

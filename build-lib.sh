@@ -7,6 +7,13 @@ check() {
     fi
 }
 
+check_common_tools() {
+    check "process tools" sh -c 'command -v ps && command -v pgrep && command -v pkill && command -v pstree && command -v fuser'
+    check "network tools" sh -c 'command -v ip && command -v ss && command -v ping && command -v nc && command -v dig && command -v socat'
+    check "debug utilities" sh -c 'command -v file && command -v tree && command -v time && command -v ssh && command -v rsync && command -v sqlite3 && command -v shellcheck'
+    check "node" node --version
+}
+
 check_codex_auth() {
     local out probe
     out=$(docker run --rm "$IMAGE" 2>&1 || true)

@@ -1,0 +1,15 @@
+procps
+psmisc
+iproute2
+iputils-ping
+netcat-openbsd
+dnsutils
+socat
+file
+tree
+time
+openssh-client
+rsync
+sqlite3
+shellcheck
+nodejs

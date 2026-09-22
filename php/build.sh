@@ -15,6 +15,7 @@ docker build -f Dockerfile --target codex \
     --build-arg PHP_GIT_REF="${PHP_GIT_REF:-php-8.5.10}" -t codex-php ..
 
 shared_checks() {
+    check_common_tools
     check "login shell PATH" bash -lc 'command -v php'
     check "php"            php --version
     check "composer"       composer --version
