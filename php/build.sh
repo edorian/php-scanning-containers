@@ -39,7 +39,7 @@ shared_checks
 check "codex"          codex --version
 check "codex --yolo"   codex --yolo --version
 check "AGENTS.md"      test -s /root/.codex/AGENTS.md
-check "config.toml"    grep -Fqx 'model = "gpt-5.6-sol"' /root/.codex/config.toml
+check "config.toml"    grep -Fqx 'model = "gpt-6.1-sol"' /root/.codex/config.toml
 check "reasoning"      grep -Fqx 'model_reasoning_effort = "xhigh"' /root/.codex/config.toml
 check "code-mode host" test -x /opt/codex/bin/codex-code-mode-host
 check "daemon"         codex app-server daemon start

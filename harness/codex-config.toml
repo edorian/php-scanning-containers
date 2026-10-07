@@ -1,6 +1,6 @@
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
-model = "gpt-5.6-sol"
+model = "gpt-6.1-sol"
 model_reasoning_effort = "xhigh"
 cli_auth_credentials_store = "file"
 
