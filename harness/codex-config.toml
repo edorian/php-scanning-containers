@@ -9,5 +9,8 @@ status_line = ["model-with-reasoning", "context-remaining", "current-dir", "git-
 auto_recap = false
 status_line_use_colors = true
 
+[tui.effects]
+welcome = false
+
 [projects."/workspace"]
 trust_level = "trusted"
