@@ -58,7 +58,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # `php` is instrumented; `php-prod` is release NTS.
 WORKDIR /opt
-RUN git clone --depth 1 --branch "${PHP_GIT_REF}" "${PHP_GIT_URL}" php-src
+ARG PHP_SRC_BUST=0
+RUN : "${PHP_SRC_BUST}" \
+ && git clone --depth 1 --branch "${PHP_GIT_REF}" "${PHP_GIT_URL}" php-src
 WORKDIR /opt/php-src
 RUN ./buildconf --force
 
@@ -169,9 +171,10 @@ RUN set -eu; \
     tag="${CODEX_VERSION:-$(curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | jq -r .tag_name)}"; \
     case "$tag" in rust-v*) ;; v*) tag="rust-${tag}" ;; *) tag="rust-v${tag}" ;; esac; \
     curl -fsSL "https://github.com/openai/codex/releases/download/${tag}/codex-package-${target}.tar.gz" \
-        | tar xz --no-same-owner -C /usr/local; \
+        | { mkdir -p /opt/codex && tar xz --no-same-owner -C /opt/codex; }; \
+    ln -s /opt/codex/bin/codex /usr/local/bin/codex; \
     codex --version; \
-    test -x /usr/local/bin/codex-code-mode-host
+    test -x /opt/codex/bin/codex-code-mode-host
 
 COPY harness/codex-config.toml /root/.codex/config.toml
 COPY ext/container-rules.md /root/.codex/AGENTS.md

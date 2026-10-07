@@ -22,6 +22,8 @@ Each build script creates and checks both agent variants:
 Optional environment variables:
 
 - `HARNESS_BUST`: force both agent install layers to refresh.
+- `PHP_SRC_BUST`: force `ext/build.sh` to re-clone php-src; it refreshes daily
+  by default.
 - `CODEX_VERSION`: install a specific Codex release instead of the latest.
 - `GO_VERSION`: set the Go version used by `go/build.sh`.
 - `PHP_GIT_REF`: select the php-src tag or branch used by `php/build.sh` or
