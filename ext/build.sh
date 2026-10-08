@@ -1,27 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+# shellcheck source=../build-lib.sh
 source ../build-lib.sh
 
 HARNESS_BUST=${HARNESS_BUST:-$(date +%Y-%m-%d)}
 PHP_GIT_REF=${PHP_GIT_REF:-master}
 PHP_SRC_BUST=${PHP_SRC_BUST:-$(date +%Y-%m-%d)}
 
-echo "Building PHP extension images..."
-docker build -f Dockerfile --target claude \
-    --build-arg CLAUDE_INSTALL_BUST="$HARNESS_BUST" \
-    --build-arg CLAUDE_MODEL="$CLAUDE_MODEL" \
-    --build-arg CLAUDE_EFFORT="$CLAUDE_EFFORT" \
-    --build-arg PHP_GIT_REF="$PHP_GIT_REF" \
-    --build-arg PHP_SRC_BUST="$PHP_SRC_BUST" -t claude-ext ..
-docker build -f Dockerfile --target codex \
-    --build-arg CODEX_INSTALL_BUST="$HARNESS_BUST" \
-    --build-arg CODEX_MODEL="$CODEX_MODEL" \
-    --build-arg CODEX_EFFORT="$CODEX_EFFORT" \
-    --build-arg CODEX_VERSION="${CODEX_VERSION:-}" \
-    --build-arg PHP_GIT_REF="$PHP_GIT_REF" \
-    --build-arg PHP_SRC_BUST="$PHP_SRC_BUST" -t codex-ext ..
+build_profile ext \
+    --build-arg "PHP_GIT_REF=$PHP_GIT_REF" \
+    --build-arg "PHP_SRC_BUST=$PHP_SRC_BUST"
 
+# Dollar expressions in these probes expand in the container shell.
+# shellcheck disable=SC2016
 shared_checks() {
     check_common_tools
     check "login shell PATH" bash -lc 'command -v php'
@@ -116,20 +108,11 @@ EOF
     check "php-src"        test -d /opt/php-src
 }
 
-IMAGE=claude-ext
+use_image "$TOOLING_IMAGE"
 shared_checks
-check "claude"         claude --version
-check "CLAUDE.md"      sh -c 'grep -q "^## General rules" /root/.claude/CLAUDE.md && grep -q "^## PHP Extension workflow" /root/.claude/CLAUDE.md'
-check "settings.json"  jq -e --arg m "$CLAUDE_MODEL" --arg e "$CLAUDE_EFFORT" '.model == $m and .effortLevel == $e' /root/.claude/settings.json
 
-IMAGE=codex-ext
-shared_checks
-check "codex"          codex --version
-check "codex --yolo"   codex --yolo --version
-check "AGENTS.md"      sh -c 'grep -q "^## General rules" /root/.codex/AGENTS.md && grep -q "^## PHP Extension workflow" /root/.codex/AGENTS.md'
-check "config.toml"    grep -Fqx "model = \"$CODEX_MODEL\"" /root/.codex/config.toml
-check "reasoning"      grep -Fqx "model_reasoning_effort = \"$CODEX_EFFORT\"" /root/.codex/config.toml
-check "code-mode host" test -x /opt/codex/bin/codex-code-mode-host
-check "daemon"         codex app-server daemon start
-check_codex_auth
+use_image claude-ext
+check_claude_agent "PHP Extension workflow"
+use_image codex-ext
+check_codex_agent "PHP Extension workflow"
 echo "Built and checked claude-ext and codex-ext."

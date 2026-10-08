@@ -1,0 +1,11 @@
+build-essential
+pkg-config
+make
+clang
+lld
+llvm
+gdb
+strace
+lsof
+libsqlite3-dev
+zlib1g-dev

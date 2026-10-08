@@ -1,0 +1,13 @@
+clang
+lld
+llvm
+clang-tools
+clang-format
+clang-tidy
+libclang-rt-dev
+libc++-dev
+libc++abi-dev
+gdb
+valgrind
+strace
+lsof

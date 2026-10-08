@@ -11,6 +11,13 @@ mounted codebase.
 
 ## Build
 
+Build every profile, or pass the profiles you want:
+
+```sh
+./build.sh
+./build.sh php go
+```
+
 Each build script creates and checks both agent variants:
 
 ```sh

@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+# shellcheck source=../build-lib.sh
 source ../build-lib.sh
 
 HARNESS_BUST=${HARNESS_BUST:-$(date +%Y-%m-%d)}
 
-echo "Building Go images..."
-docker build -f Dockerfile --target claude \
-    --build-arg CLAUDE_INSTALL_BUST="$HARNESS_BUST" \
-    --build-arg CLAUDE_MODEL="$CLAUDE_MODEL" \
-    --build-arg CLAUDE_EFFORT="$CLAUDE_EFFORT" \
-    --build-arg GO_VERSION="${GO_VERSION:-}" -t claude-go ..
-docker build -f Dockerfile --target codex \
-    --build-arg CODEX_INSTALL_BUST="$HARNESS_BUST" \
-    --build-arg CODEX_MODEL="$CODEX_MODEL" \
-    --build-arg CODEX_EFFORT="$CODEX_EFFORT" \
-    --build-arg CODEX_VERSION="${CODEX_VERSION:-}" \
-    --build-arg GO_VERSION="${GO_VERSION:-}" -t codex-go ..
+build_profile go --build-arg "GO_VERSION=${GO_VERSION:-}"
 
+# Dollar expressions in the race test expand in the container shell.
+# shellcheck disable=SC2016
 shared_checks() {
     check_common_tools
     check "login shell PATH" bash -lc 'command -v go'
@@ -71,20 +63,11 @@ EOF
     check "semgrep"        semgrep --version
 }
 
-IMAGE=claude-go
+use_image "$TOOLING_IMAGE"
 shared_checks
-check "claude"         claude --version
-check "CLAUDE.md"      sh -c 'grep -q "^## General rules" /root/.claude/CLAUDE.md && grep -q "^## Go rules" /root/.claude/CLAUDE.md'
-check "settings.json"  jq -e --arg m "$CLAUDE_MODEL" --arg e "$CLAUDE_EFFORT" '.model == $m and .effortLevel == $e' /root/.claude/settings.json
 
-IMAGE=codex-go
-shared_checks
-check "codex"          codex --version
-check "codex --yolo"   codex --yolo --version
-check "AGENTS.md"      sh -c 'grep -q "^## General rules" /root/.codex/AGENTS.md && grep -q "^## Go rules" /root/.codex/AGENTS.md'
-check "config.toml"    grep -Fqx "model = \"$CODEX_MODEL\"" /root/.codex/config.toml
-check "reasoning"      grep -Fqx "model_reasoning_effort = \"$CODEX_EFFORT\"" /root/.codex/config.toml
-check "code-mode host" test -x /opt/codex/bin/codex-code-mode-host
-check "daemon"         codex app-server daemon start
-check_codex_auth
+use_image claude-go
+check_claude_agent "Go rules"
+use_image codex-go
+check_codex_agent "Go rules"
 echo "Built and checked claude-go and codex-go."
