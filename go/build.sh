@@ -74,14 +74,14 @@ EOF
 IMAGE=claude-go
 shared_checks
 check "claude"         claude --version
-check "CLAUDE.md"      test -s /root/.claude/CLAUDE.md
+check "CLAUDE.md"      sh -c 'grep -q "^## General rules" /root/.claude/CLAUDE.md && grep -q "^## Go rules" /root/.claude/CLAUDE.md'
 check "settings.json"  jq -e --arg m "$CLAUDE_MODEL" --arg e "$CLAUDE_EFFORT" '.model == $m and .effortLevel == $e' /root/.claude/settings.json
 
 IMAGE=codex-go
 shared_checks
 check "codex"          codex --version
 check "codex --yolo"   codex --yolo --version
-check "AGENTS.md"      test -s /root/.codex/AGENTS.md
+check "AGENTS.md"      sh -c 'grep -q "^## General rules" /root/.codex/AGENTS.md && grep -q "^## Go rules" /root/.codex/AGENTS.md'
 check "config.toml"    grep -Fqx "model = \"$CODEX_MODEL\"" /root/.codex/config.toml
 check "reasoning"      grep -Fqx "model_reasoning_effort = \"$CODEX_EFFORT\"" /root/.codex/config.toml
 check "code-mode host" test -x /opt/codex/bin/codex-code-mode-host

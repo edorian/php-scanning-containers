@@ -152,7 +152,9 @@ RUN test -n "${CLAUDE_MODEL}" && test -n "${CLAUDE_EFFORT}" \
  && jq --arg m "${CLAUDE_MODEL}" --arg e "${CLAUDE_EFFORT}" '{model: $m, effortLevel: $e} + .' \
         /root/.claude/settings.json > /tmp/settings.json \
  && mv /tmp/settings.json /root/.claude/settings.json
-COPY ext/container-rules.md /root/.claude/CLAUDE.md
+COPY harness/agent-rules.md ext/container-rules.md /tmp/rules/
+RUN { cat /tmp/rules/agent-rules.md; echo; cat /tmp/rules/container-rules.md; } > /root/.claude/CLAUDE.md \
+ && rm -rf /tmp/rules
 
 # IS_SANDBOX=1 lets --dangerously-skip-permissions run as root.
 ENV CLAUDE_EFFORT="${CLAUDE_EFFORT}" \
@@ -189,7 +191,9 @@ ARG CODEX_EFFORT
 RUN test -n "${CODEX_MODEL}" && test -n "${CODEX_EFFORT}" \
  && sed -i -e "1i model = \"${CODEX_MODEL}\"" \
         -e "1i model_reasoning_effort = \"${CODEX_EFFORT}\"" /root/.codex/config.toml
-COPY ext/container-rules.md /root/.codex/AGENTS.md
+COPY harness/agent-rules.md ext/container-rules.md /tmp/rules/
+RUN { cat /tmp/rules/agent-rules.md; echo; cat /tmp/rules/container-rules.md; } > /root/.codex/AGENTS.md \
+ && rm -rf /tmp/rules
 
 ENV CODEX_ACCESS_TOKEN="" \
     CODEX_AUTH_JSON="" \

@@ -1,26 +1,3 @@
-# PHP extension scanning container
-
-The checkout is at `/workspace/<project>`. Locate it, then work from that
-directory. The container provides unrestricted root access for package
-installation and file editing.
-
-Keep every persistent result in the findings:
-
-- Maintain `/workspace/findings.md` as the complete report. Create it at the
-  start, update it as evidence develops, and record the scope and checks when
-  there are no findings.
-- When validating reports, include a `Special cases` section. Record every
-  confirmed behavior excluded from security classification by the target's
-  `SECURITY.md`, cite the applicable policy, explain the exclusion, and state
-  whether it remains an ordinary bug. Keep policy exclusions distinct from
-  disproved or unreproduced claims.
-- Put optional PoCs, inputs, or large supporting output in
-  `/workspace/findings/` when they do not fit reasonably in the report.
-- Put files in the checkout when they are intended source changes, tests, or
-  fixtures.
-- Use `/tmp` for disposable work. Summarize useful results in `findings.md` or
-  move supporting files into `findings/` before finishing.
-
 ## PHP builds
 
 - `php`, `phpize`, `php-config`, and `php-fpm` use the debug, ZTS, ASan, and
@@ -45,22 +22,20 @@ claims. Label every result with the build that produced it.
   and libFuzzer targets.
 - `prod-env` selects and configures the release toolchain. Use it for every
   production build command.
-- GDB, Valgrind, strace, Composer, Semgrep, zizmor, `gh`, `jq`, `rg`, and `fd`
-  are installed. Run Valgrind and ASan separately. `gh` uses `GH_TOKEN`.
+- GDB, Valgrind, strace, Composer, and zizmor are installed. Run Valgrind and
+  ASan separately.
 
-## Workflow
+## PHP Extension workflow
 
-- Install dependencies and tools freely. Inspect `config.m4`, configure and
-  build scripts, test bootstraps, and CI hooks for malicious behavior before
-  executing them. Then initialize a standard extension build with `phpize` and
-  `./configure`, and run `make`.
+- Treat `config.m4` and configure scripts as build hooks to inspect. Then
+  initialize a standard extension build with `phpize` and `./configure`, and
+  run `make`.
 - Record the PHP version, `/opt/php-src` commit, configure options, SAPI,
   extension commit, compiler, linked library versions, and relevant ini values.
   Reproduce on the affected supported PHP branch as well as the current branch.
-- Read the target's `SECURITY.md`. For php-src, apply
-  `/opt/php-src/SECURITY.md`: establish a plausible attacker-controlled path
-  across a security boundary before assigning security impact. Use its private
-  reporting channel for unpublished findings.
+- For php-src, apply `/opt/php-src/SECURITY.md`: establish a plausible
+  attacker-controlled path across a security boundary before assigning
+  security impact.
 - Audit every attacker-controlled length, offset, count, allocation, copy, and
   terminator for overflow, truncation, signedness, embedded NUL bytes, partial
   reads, and platform-width differences.
@@ -108,6 +83,4 @@ claims. Label every result with the build that produced it.
   `/opt/php-src`.
 - Report the smallest reproducer, exact command, sanitizer summary, relevant
   stack frames, attacker prerequisites, affected versions, and observed impact.
-  Classify the memory defect separately from its security impact and redact
-  credentials, personal data, and production secrets.
-- Install required build dependencies and report what you installed.
+  Classify the memory defect separately from its security impact.
