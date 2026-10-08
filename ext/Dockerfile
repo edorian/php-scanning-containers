@@ -146,15 +146,22 @@ RUN : "${CLAUDE_INSTALL_BUST}" \
 
 COPY harness/claude.json /root/.claude.json
 COPY harness/claude-settings.json /root/.claude/settings.json
+ARG CLAUDE_MODEL
+ARG CLAUDE_EFFORT
+RUN test -n "${CLAUDE_MODEL}" && test -n "${CLAUDE_EFFORT}" \
+ && jq --arg m "${CLAUDE_MODEL}" --arg e "${CLAUDE_EFFORT}" '{model: $m, effortLevel: $e} + .' \
+        /root/.claude/settings.json > /tmp/settings.json \
+ && mv /tmp/settings.json /root/.claude/settings.json
 COPY ext/container-rules.md /root/.claude/CLAUDE.md
 
 # IS_SANDBOX=1 lets --dangerously-skip-permissions run as root.
-ENV CLAUDE_CODE_OAUTH_TOKEN="" \
+ENV CLAUDE_EFFORT="${CLAUDE_EFFORT}" \
+    CLAUDE_CODE_OAUTH_TOKEN="" \
     GH_TOKEN="" \
     IS_SANDBOX=1
 WORKDIR /workspace
 
-CMD ["claude", "--dangerously-skip-permissions", "--effort", "xhigh"]
+CMD ["sh", "-c", "exec claude --dangerously-skip-permissions --effort \"$CLAUDE_EFFORT\""]
 
 FROM tooling AS codex
 
@@ -177,6 +184,11 @@ RUN set -eu; \
     test -x /opt/codex/bin/codex-code-mode-host
 
 COPY harness/codex-config.toml /root/.codex/config.toml
+ARG CODEX_MODEL
+ARG CODEX_EFFORT
+RUN test -n "${CODEX_MODEL}" && test -n "${CODEX_EFFORT}" \
+ && sed -i -e "1i model = \"${CODEX_MODEL}\"" \
+        -e "1i model_reasoning_effort = \"${CODEX_EFFORT}\"" /root/.codex/config.toml
 COPY ext/container-rules.md /root/.codex/AGENTS.md
 
 ENV CODEX_ACCESS_TOKEN="" \

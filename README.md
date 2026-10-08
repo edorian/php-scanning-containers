@@ -19,6 +19,19 @@ Each build script creates and checks both agent variants:
 ./go/build.sh
 ```
 
+Default models and effort levels are set in `models.env`. To build with other
+values without committing them, create an untracked `models.local.env` next to
+it:
+
+```sh
+CLAUDE_MODEL=claude-opus-5-5
+CLAUDE_EFFORT=xhigh
+CODEX_MODEL=gpt-6.1-sol
+CODEX_EFFORT=xhigh
+```
+
+Any line may be omitted to keep its default from `models.env`.
+
 Optional environment variables:
 
 - `HARNESS_BUST`: force both agent install layers to refresh.

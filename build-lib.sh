@@ -1,3 +1,12 @@
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# Committed default models and effort; an untracked models.local.env overrides them.
+source "$REPO_ROOT/models.env"
+if [ -f "$REPO_ROOT/models.local.env" ]; then
+    source "$REPO_ROOT/models.local.env"
+fi
+echo "Models: claude=$CLAUDE_MODEL ($CLAUDE_EFFORT) codex=$CODEX_MODEL ($CODEX_EFFORT)"
+
 check() {
     local label=$1 output
     shift

@@ -1,7 +1,5 @@
 {
-  "model": "claude-opus-5-5",
   "theme": "dark",
-  "effortLevel": "xhigh",
   "tui": "default",
   "skipDangerousModePermissionPrompt": true,
   "awaySummaryEnabled": false,
