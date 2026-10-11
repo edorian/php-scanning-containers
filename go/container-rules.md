@@ -1,24 +1,41 @@
 ## Go environment
 
-- Go is installed at `/usr/local/go`; standard library source is in
-  `/usr/local/go/src`.
-- `/root/go` is `GOPATH`, and `/root/go/bin` is on `PATH`.
-- `gofmt`, `gofumpt`, `goimports`, `staticcheck`, `golangci-lint`, `gosec`,
-  `govulncheck`, `gopls`, `dlv`, and `gotestsum` are installed.
-- `GOTOOLCHAIN=auto`; check `go version` inside the project before relying on a
-  specific version.
-- cgo, GCC, and Clang are available. Use GCC for `-race` and `CC=clang` for
-  `-msan` or `-asan`.
+Go and its standard library source are installed under `/usr/local/go`.
+`/root/go` is `GOPATH`, and `/root/go/bin` is on `PATH`.
+
+The image includes cgo, GCC, Clang, Delve, `gofmt`, `gofumpt`, `goimports`,
+`staticcheck`, `golangci-lint`, `gosec`, `govulncheck`, `gopls`, and `gotestsum`.
+`CGO_ENABLED=1` and `GOTOOLCHAIN=auto`. The Go version requested by a module may
+therefore be downloaded at runtime; confirm the effective version with
+`go version`.
 
 ## Go rules
 
-- Prefer `go build`, `go vet`, and `go test` over static inference.
-- Run `go mod download` when the project uses modules. Run `go mod tidy` only
-  when changing the module graph. Respect vendoring with `-mod=vendor`.
-- Use `go test -race ./...` for changes involving concurrency.
-- Run relevant fuzz targets. Preserve and report any generated
-  `testdata/fuzz` reproducer.
-- Use the project's Makefile, task runner, CI, workspace, and linter config.
-  Otherwise run the applicable subset of `gofmt -l`, `go vet ./...`,
-  `staticcheck ./...`, and `govulncheck ./...`.
-- Check every relevant build tag and `GOOS`/`GOARCH` target explicitly.
+1. **Respect the module and toolchain setup**
+   - Check `go.work`, `go.mod`, the `toolchain` directive, and `vendor/` before
+     choosing commands.
+   - Use `go mod download` when dependencies are needed.
+   - Respect vendoring with `-mod=vendor`. Do not run `go mod tidy` or otherwise
+     change the module graph unless the task requires it.
+
+2. **Run a useful baseline**
+   - Follow the project's Makefile, task runner, CI configuration, and lint
+     configuration first.
+   - When the project has no equivalent checks, run `go test ./...`,
+     `go vet ./...`, `staticcheck ./...`, `govulncheck ./...`, and `gosec ./...`
+     where they apply.
+   - Confirm scanner results against the resolved module versions and a real
+     path through the program before reporting them.
+
+3. **Cover code hidden by the default build**
+   - Inspect build tags, cgo files, and platform-specific filenames.
+   - Test the affected tags and `GOOS`/`GOARCH` combinations instead of assuming
+     that the default `./...` run covered them.
+
+4. **Use the runtime tools for the bugs they can expose**
+   - Run `go test -race ./...` for concurrent code. The race detector uses cgo
+     and GCC in this image.
+   - Use `CC=clang go test -msan ./...` or `CC=clang go test -asan ./...` for
+     relevant cgo and native-memory investigations.
+   - Run existing fuzz targets for parsers and other input-heavy code. Keep
+     useful minimized corpus entries under `testdata/fuzz` in the checkout.

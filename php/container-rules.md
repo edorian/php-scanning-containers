@@ -1,45 +1,33 @@
 ## PHP environment
 
-- `php`, `phpize`, `php-config`, and `php-fpm` use the PHP 8.5.10 release NTS
-  build in `/usr/local/php`.
-- PHP source and build dependencies are in `/opt/php-src`.
-- `composer` and `zizmor` are on `PATH`.
+`php`, `phpize`, `php-config`, and `php-fpm` use the release, non-thread-safe
+build in `/usr/local/php`. Check the exact version with `php --version`. The
+matching configured PHP source tree is in `/opt/php-src`. Composer and zizmor
+are on `PATH`.
 
-Use this release NTS build for application and library analysis, dependency
-audits, tests, and static checks. Route PHP core and C-extension memory-safety
-work to the instrumented `claude-ext` or `codex-ext` image.
+Use this image for applications, libraries, dependency audits, and static
+analysis. Use the `ext` image for PHP core, C extensions, or memory-safety work;
+it provides instrumented and production builds.
 
 ## PHP rules
 
-- Treat Composer plugins and scripts as hooks to inspect. Start Composer
-  bootstrap with `composer install --no-plugins --no-scripts`, then enable
-  reviewed hooks.
-- Install the versions in `composer.lock`. Update the dependency graph when the
-  task specifically requires it.
-- Include Composer scripts when discovering the project's checks.
-- Evaluate memory-safety reports in the instrumented extension image and
-  report the sanitizer result.
+1. **Bootstrap Composer safely**
+   - Inspect `composer.json` plugins and scripts before enabling them.
+   - Start with `composer install --no-plugins --no-scripts` when dependencies
+     need to be installed, then run only the hooks you have reviewed.
+   - Install the versions in `composer.lock`. Do not update the dependency graph
+     unless the task requires it.
 
-## Security review
+2. **Check locked dependencies**
+   - When `composer.lock` exists, run `composer validate --strict`,
+     `composer audit --locked`, and `composer check-platform-reqs`.
+   - Before reporting an advisory, confirm that it applies to the installed
+     version and a reachable path in this project.
 
-- Define the attacker, entry point, trust boundary, required privileges and
-  configuration, and concrete confidentiality, integrity, or availability
-  impact. Include a minimal end-to-end reproducer with every finding.
-- Trace request data, headers, cookies, uploads, serialized values, database
-  rows, queues, caches, environment variables, and configuration into
-  authorization decisions and sensitive sinks: SQL, processes, paths, includes,
-  streams, outbound URLs, templates, response headers, and deserialization.
-- Test PHP-specific boundary values: arrays in scalar inputs, numeric strings,
-  loose comparisons, embedded NUL bytes, invalid encodings, traversal segments,
-  stream-wrapper schemes, symlinks, redirects, deep recursion, and oversized
-  input.
-- Review authentication and state changes for object ownership, tenant and role
-  boundaries, CSRF, session fixation and rotation, reset tokens, and cookie and
-  trusted-proxy settings. Review secret generation, password handling,
-  cryptographic verification, error output, and security-sensitive logging.
-- Run `composer validate --strict`, `composer audit --locked`, and
-  `composer check-platform-reqs` when the project has a lock file. Report the
-  affected package, installed version, advisory, and reachable application path.
-- Record `php -v`, `php --ini`, relevant `php -i` values, enabled extensions,
-  dependency versions, and SAPI. Reproduce request parsing, sessions, uploads,
-  headers, and proxy behavior through the deployment-relevant SAPI and config.
+3. **Reproduce behavior in the right runtime**
+   - Use the deployment SAPI and relevant ini settings for behavior that differs
+     between CLI, FPM, and web requests.
+   - Record the effective SAPI, ini files, extensions, and dependency versions
+     when they affect the result.
+   - Confirm suspected memory-safety problems in the instrumented `ext` image
+     and include the sanitizer evidence.

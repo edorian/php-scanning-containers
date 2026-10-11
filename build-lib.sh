@@ -74,7 +74,7 @@ check_common_tools() {
 check_rules() {
     local path=$1 section=$2
     check "agent rules" sh -c '
-        grep -Fqx "## General rules" "$1"
+        test -s "$1"
         grep -Fqx "## $2" "$1"
     ' sh "$path" "$section"
 }
@@ -103,11 +103,10 @@ check_codex_agent() {
 
 check_codex_auth() {
     local out probe
-    out=$(docker run --rm "$IMAGE" 2>&1 || true)
-    case "$out" in
-        *"No Codex credentials"*) ;;
-        *) printf 'FAILED [%s] credential guard\n%s\n' "$IMAGE" "$out" >&2; exit 1 ;;
-    esac
+    if ! out=$(docker run --rm "$IMAGE" sh -c 'test ! -e /root/.codex/auth.json' 2>&1); then
+        printf 'FAILED [%s] unauthenticated startup\n%s\n' "$IMAGE" "$out" >&2
+        exit 1
+    fi
 
     probe='{"tokens":{"access_token":"probe","refresh_token":""}}'
     if ! out=$(docker run --rm -e "CODEX_AUTH_JSON=$probe" "$IMAGE" \

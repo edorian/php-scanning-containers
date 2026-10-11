@@ -18,11 +18,9 @@ docker_args=(--rm -it -v "${WORKSPACE}:/workspace")
 
 case "${image}" in
     claude-*)
-        if [ -z "${CLAUDE_CODE_OAUTH_TOKEN-}" ]; then
-            echo "CLAUDE_CODE_OAUTH_TOKEN is not set. Get one with: claude setup-token" >&2
-            exit 1
+        if [ -n "${CLAUDE_CODE_OAUTH_TOKEN-}" ]; then
+            docker_args+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}")
         fi
-        docker_args+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}")
         ;;
     codex-*)
         auth_file=${CODEX_AUTH_FILE:-$HOME/.codex/auth.json}
@@ -44,9 +42,6 @@ case "${image}" in
                 exit 1
             }
             docker_args+=(-e "CODEX_AUTH_JSON=${auth_json}")
-        else
-            echo "${auth_file} does not exist. Run codex login on the host." >&2
-            exit 1
         fi
         ;;
 esac

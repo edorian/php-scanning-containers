@@ -80,7 +80,7 @@ EOF
         echo "$out" | grep -q "AddressSanitizer" || { echo "clang asan did not fire:"; echo "$out"; exit 1; }
     '
 
-    check "dual-abi ext e2e" sh -c '
+    check "separate PHP builds e2e" sh -c '
         set -e
         php /opt/php-src/ext/ext_skel.php --ext probe --vendor smoke --dir /tmp > /dev/null
         cp -a /tmp/probe /tmp/probe-prod
